@@ -1,0 +1,23 @@
+= Programs: =
+mrc2xxx: support for x/y trimming
+xxx2png: support for blurring
+
+= Future Programs: =
+png2mha, mha2png, png2png, mha2mha: trivial copy-paste with a few modifications
+png2mrc, mha2mrc: need to create an mrc file writer
+
+= Internals: =
+MRC class:
+ * improve, fix, and expand the [] slice usage
+ * create MRC writer
+create_labels:
+ * look into using numpy.searchsorted for relabelling [probably much faster if it can be used]
+ * support using the same labels across slices
+ * improve speed (and actually test speed)
+ * support signed types
+ * support running connected components code on BW data (scipy.ndimage.label)
+Process:
+ * figure out why EPD deadlocks
+ * figure out why system Python is not doing all commands
+ * test PythonProcess and PythonThread
+
