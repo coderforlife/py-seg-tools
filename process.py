@@ -63,6 +63,7 @@ class Process:
         """
         Get all dependency ancestors of this process
         """
+        # TODO: this is possibly slow
         if self.__ancestors == None: 
             ancs = set(self.parents)
             for p in self.parents:
