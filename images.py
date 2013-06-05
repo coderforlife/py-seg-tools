@@ -87,7 +87,7 @@ class MRC:
             if vers[1] == MRC.BIG_ENDIAN:
                 endian = '>'
             elif vers[1] != MRC.LITTLE_ENDIAN:
-                raise IOError('MRC file is invalid (stamp is 0x%08d)' % self.header['stamp'])
+                raise IOError('MRC file is invalid (stamp is 0x%08x)' % self.header['stamp'])
             h = dict(zip(MRC.FIELDS, unpack(endian + '10i6f3i3fiih30xhh20xii6h6f3f2ifi', raw)))
         else:
             h = dict(zip(MRC.FIELDS_OLD, unpack('<10i6f3i3fiih30xhh20xii6h6f6h3fi', raw)))
@@ -179,48 +179,43 @@ def gauss_blur(im, sigma = 1.0):
     from scipy.ndimage import gaussian_filter
     return gaussian_filter(im, sigma = sigma)
 
+def flip_up_down(im):
+    """
+    Flips an image from top-bottom. The returned value is a view, not a copy, so it will values changed in either will be reflected in the other.
+    """
+    from numpy import flipud
+    return flipud(im)
+
 def create_labels(im):
     """
     Creates a consecutively numbered IM_UINT image from an image.
     0 (or 0,0,0 for RGB) is the only value allowed to become 0 in the resulting image.
-    For non-RGB unsigned types order is maintained.
-    Note: currently signed types are not supported.
+    Order is maintained. Note: Currently signed types are not supported.
     """
-    # TODO: make this faster...
     # TODO: support using the same numbers across multiple slices
-    from numpy import unique, vectorize
+    # TODO: support running connected components code on BW data ( scipy.ndimage.label() )
+    from numpy import unique, insert, searchsorted
+    # See scipy-lectures.github.io/advanced/image_processing/#measuring-objects-properties-ndimage-measurements for the unqiue/searchsorted method
     if im.ndim == 2 and im.dtype == IM_RGB24_STRUCT or im.ndim == 3 and im.shape[2] == 3 and im.dtype == IM_BYTE: # IM_RGB24 can't be directly detected
-        # RGB takes special care, and takes longer
-        # TODO: might be faster to let Python use the RGB tuples as the keys
-        def to_int(x): return (x[0] << 16) + (x[1] << 8) + x[2]
+        # RGB takes special care, and takes a little longer
         im = im.view(dtype=IM_RGB24_STRUCT).squeeze() # converting from IM_RGB24 to IM_RGB24_STRUCT has the 3rd dimension we need to get rid of
-        values = [to_int(x) for x in unique(im)]
-        if values[0] != 0: values.insert(0, 0) # make sure only 0 becomes 0
+        values = unique(im)
+        if tuple(values[0]) != (0, 0, 0): values = insert(values, 0, uint8(0)) # make sure only 0 becomes 0
         # can't do the cheat where we would jump out now...
-        lookup = dict(zip(values, xrange(len(values)))) # pixel value -> index
-        f = vectorize(lambda x: lookup[to_int(x)], otypes=[IM_UINT])
-        return f(im)
-    elif im.ndim == 2 and im.dtype in (IM_BYTE, IM_USHORT, IM_USHORT_BE, IM_UINT, IM_UINT_BE):
-        # Unsigned types need to make sure all the labels are consective starting from 1 and convert to IM_UINT
-        values = unique(im).tolist()
-        if values[0] != 0: values.insert(0, 0) # make sure only 0 becomes 0
-        if values[-1] == len(values) - 1: return im.astype(IM_UINT) # have consecutive numbers starting at 0, straight numeric conversion
-        lookup = dict(zip(values, xrange(len(values)))) # pixel value -> index
-        f = vectorize(lambda x: lookup[x], otypes=[IM_UINT])
-        return f(im)
-##    elif im.ndim == 2 and im.dtype in (IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_FLOAT):
-##        # Signed types need to take care of negative values, but is mostly like for unsigned types
-##        values = unique(im).tolist()
-##        if min(values) < 0:
-##            # TODO: have negative values, need to make them positive
-##            pass
-##        if values[0] != 0: values.insert(0, 0) # make sure only 0 becomes 0
-##        if values[-1] == len(values) - 1: return im.astype(IM_UINT) # have consecutive numbers starting at 0, straight numeric conversion
-##        lookup = dict(zip(values, xrange(len(values)))) # pixel value -> index
-##        f = vectorize(lambda x: lookup[x], otypes=[IM_UINT])
-##        return f(im)
-    else:
-        raise ValueError('im')
+    elif im.ndim == 2 and im.dtype in (IM_BYTE, IM_USHORT, IM_USHORT_BE, IM_UINT, IM_UINT_BE): # IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_FLOAT?
+        # Make sure all the labels are consective starting from 1 and convert to IM_UINT
+        values = unique(im)
+        #if values[0] < 0:
+        #    # TODO: negative values exist, a little harder (the code below 'works' but does not keep 0 in the 0 position...
+        #    pos0 = searchsorted(values, 0)
+        #    if pos0 == len(values) or values[pos0] != 0: values = insert(values, pos0, 0) # make sure only 0 becomes 0
+        #    # can't do the cheat where we would jump out now...
+        #else:
+            # only positive, easier
+        if values[0] != 0: values = insert(values, 0, 0) # make sure only 0 becomes 0
+        if im.dtype != IM_FLOAT and values[-1] == len(values) - 1: return im.astype(IM_UINT) # have consecutive numbers starting at 0 already, straight numeric conversion
+    else: raise ValueError('im')
+    return searchsorted(values, im).astype(IM_UINT)
 
 def float_image(im, in_scale = None, out_scale = (0.0, 1.0)):
     """
