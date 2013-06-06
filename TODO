@@ -10,12 +10,10 @@ png2mrc, mha2mrc: need to create an mrc file writer
 = Internals =
 MRC class:
  * improve, fix, and expand the [] slice usage
- * create MRC writer
- * support "views" which would inteligently read a subvolume
 create_labels:
  * support using the same labels across slices
  * support running connected components code on BW data (scipy.ndimage.label)
- * support signed types
+ * support negative values in signed types
 Process:
  * figure out why EPD deadlocks
  * figure out why system Python is not doing all commands
