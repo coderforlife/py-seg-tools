@@ -1,5 +1,4 @@
 = Programs =
-mrc2xxx: support for x/y trimming
 xxx2png: support for blurring
 xxx2xxx: support top-bottom flipping
 

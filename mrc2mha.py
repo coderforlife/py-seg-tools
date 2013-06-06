@@ -15,7 +15,7 @@ def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, sigm
     
     Optional Arguments:
     indxs    -- the indices of slices to save, default is to use all slices
-    basename -- the template name to use for MHAs, needs to have a %d to be replaced by slice number, default is "%d.mha"
+    basename -- the template name to use for MHAs, needs to have a %d to be replaced by slice number, default is "%03d.mha"
     mode     -- output mode, one of:
                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
                     'label' to output a consecutively numbered image for label data
@@ -61,7 +61,9 @@ def help_msg(err = 0, msg = None):
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
     print tw.fill("  -b  --base      The base filename base to use, needs to have a %d to replace with slice number, defaults to '%03d.mha'")
-    print tw.fill("  -i  --indices   The slice indices to use, accepts numbers with commas and dashes between them, default is all slices")
+    print tw.fill("  -x              The x coordinate to extract given as two integers seperated by a comma")
+    print tw.fill("  -y              The y coordinate to extract given as two integers seperated by a comma")
+    print tw.fill("  -z              The slice indices to use, accepts integers with commas and dashes between them")
     print tw.fill("  -m  --mode      The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
     print tw.fill("  -s  --sigma     Sigma for Gaussian blurring while saving, defaults to no blurring")
     exit(err)
@@ -80,7 +82,7 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
 
     try:
-        opts, args = getopt(argv[1:], "hb:i:m:s:", ["help", "base=", "indices=", "mode=", "sigma="])
+        opts, args = getopt(argv[1:], "hb:x:y:z:m:s:", ["help", "base=", "mode=", "sigma="])
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
@@ -98,20 +100,30 @@ if __name__ == "__main__":
             except:
                 help_msg(2, "The basename must contain %d (or a variant) for the slice number")
             basename = a
-        elif o == "-i" or o == "--indices":
-            if indxs != None: help_msg(2, "Must be only one indxs argument")
-            parts = []
-            for p in indxs.split(","):
+        elif o == "-z":
+            if z != None: help_msg(2, "Must be only one z argument")
+            z = []
+            for p in a.split(","):
                 if p.isdigit(): # single digit
                     p = int(p)
-                    if p < 0: help_msg(2, "Invalid indices argument supplied")
-                    parts.append(p)
+                    if p < 0: help_msg(2, "Invalid z argument supplied")
+                    z.append(p)
                 else: # range of numbers
                     p = [int(p) for p in p.split('-') if p.isdigit()]
-                    if len(p) != 2 or p[0] < 0 or p[1] < p[0]: help_msg(2, "Invalid indices argument supplied")
-                    parts.extend(range(p[0], p[1] + 1))
-            parts = list(set(parts)) # remove duplicates
-            parts.sort()
+                    if len(p) != 2 or p[0] < 0 or p[1] < p[0]: help_msg(2, "Invalid z argument supplied")
+                    z.extend(range(p[0], p[1] + 1))
+            z = list(set(z)) # remove duplicates
+            z.sort()
+        elif o == "-x":
+            if x != None: help_msg(2, "May be only one x argument")
+            x = x.split(",")
+            if len(x) != 2 or not x[0].isdigit() or not x[1].isdigit(): help_msg(2, "Invalid x argument supplied")
+            x = (int(x[0]), int(x[1]))
+        elif o == "-y":
+            if y != None: help_msg(2, "May be only one y argument")
+            y = y.split(",")
+            if len(y) != 2 or not y[0].isdigit() or not y[1].isdigit(): help_msg(2, "Invalid y argument supplied")
+            y = (int(y[0]), int(y[1]))
         elif o == "-m" or o == "--mode":
             if mode != None: help_msg(2, "Must be only one mode argument")
             mode = a
@@ -133,6 +145,11 @@ if __name__ == "__main__":
     # Set defaults for optional args
     if sigma    == None: sigma = 0.0
     if basename == None: basename = "%03d.mha"
+    if x == None: x = (0, mrc.nx - 1)
+    elif x[0] < 0 or x[1] < x[0] or x[1] < mrc.nx: help_msg(2, "Invalid x argument supplied")
+    if y == None: y = (0, mrc.ny - 1)
+    elif y[0] < 0 or y[1] < y[0] or y[1] < mrc.ny: help_msg(2, "Invalid x argument supplied")
+    zs = (min(z), max(z)) if z else (0, mrc.nz - 1)
 
     # Do the actual work!
-    mrc2mha(mrc, mha_dir, indxs, basename, mode, sigma)
+    mrc2mha(mrc.view(x, y, zs), mha_dir, z, basename, mode, sigma)
