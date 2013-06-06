@@ -1,10 +1,6 @@
-= Programs =
-xxx2png: support for blurring
-xxx2xxx: support top-bottom flipping
-
 = Future Programs =
 png2mha, mha2png, png2png, mha2mha: trivial copy-paste with a few modifications
-png2mrc, mha2mrc: need to create an mrc file writer
+png2mrc, mha2mrc: need to test mrc file writer
 
 = Internals =
 MRC class:

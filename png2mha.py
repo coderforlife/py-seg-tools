@@ -5,7 +5,7 @@ Converts PNG file to an MHA file. Runs either as a command line program or as an
 importable function.
 """
 
-def png2mha(png, mha, mode = None, sigma = 0.0):
+def png2mha(png, mha, mode = None, flip = False, sigma = 0.0):
     """
     Converts a PNG file to an MHA file
 
@@ -18,9 +18,10 @@ def png2mha(png, mha, mode = None, sigma = 0.0):
                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
                     'label' to output a consecutively numbered image for label data
                     None (default) to perform no conversion
+    flip     -- if True then image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
-    from images import sp_read, gauss_blur, float_image, create_labels, itk_save
+    from images import sp_read, flip_up_down, gauss_blur, float_image, create_labels, itk_save
 
     float_it = False
     label_it = False
@@ -28,7 +29,8 @@ def png2mha(png, mha, mode = None, sigma = 0.0):
     elif mode == 'label': label_it = True
     elif mode != None: raise ValueError("Mode must be 'float', 'label', or None")
     im = sp_read(png)
-    if sigma != 0.0: im = gauss_blur(im, sigma)
+    if flip: sec = flip_up_down(sec)
+    if sigma: im = gauss_blur(im, sigma)
     if float_it: im = float_image(im)
     elif label_it: im = create_labels(im)
     itk_save(mha, im)
@@ -46,8 +48,9 @@ def help_msg(err = 0, msg = None):
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -m  --mode      The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
-    print tw.fill("  -s  --sigma     Sigma for Gaussian blurring while saving, defaults to no blurring")
+    print tw.fill("  -f  --flip      If given then image is flipped top to bottom before saving")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
+    print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     exit(err)
         
 if __name__ == "__main__":
@@ -62,15 +65,19 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
 
     try:
-        opts, args = getopt(argv[1:], "hm:s:", ["help", "mode=", "sigma="])
+        opts, args = getopt(argv[1:], "hfm:s:", ["help", "flip", "mode=", "sigma="])
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
+    flip = False
     mode = None
     sigma = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
+        elif o == "-f" or o == "--flip":
+            if flip: help_msg(2, "Must be only one flip argument")
+            flip = True
         elif o == "-m" or o == "--mode":
             if mode != None: help_msg(2, "Must be only one mode argument")
             mode = a
@@ -91,4 +98,4 @@ if __name__ == "__main__":
     if sigma == None: sigma = 0.0
 
     # Do the actual work!
-    png2mha(png, mha, mode, sigma)
+    png2mha(png, mha, mode, flip, sigma)

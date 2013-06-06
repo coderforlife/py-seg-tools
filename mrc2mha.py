@@ -5,7 +5,7 @@ Converts an MRC file to an MHA stack. Runs either as a command line program or
 as an importable function.
 """
 
-def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, sigma = 0.0):
+def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, flip = False, sigma = 0.0):
     """
     Converts an MRC file to an MHA stack
 
@@ -20,10 +20,11 @@ def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, sigm
                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
                     'label' to output a consecutively numbered image for label data
                     None (default) to perform no conversion
+    flip     -- if True then each image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
-    from images import MRC, gauss_blur, float_image, create_labels, itk_save
+    from images import MRC, flip_up_down, gauss_blur, float_image, create_labels, itk_save
     from utils import make_dir
 
     float_it = False
@@ -33,8 +34,11 @@ def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, sigm
     elif mode != None: raise ValueError("Mode must be 'float', 'label', or None")
     if isinstance(mrc, basestring): mrc = MRC(mrc)
     if not make_dir(mha_dir): raise IOError("Unable to create directory")
+    flip = bool(flip)
+    sigma = float(sigma)
     if indxs == None:
         for i, sec in enumerate(mrc):
+            if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
             elif label_it: sec = create_labels(sec)
@@ -42,6 +46,7 @@ def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, sigm
     else:
         for i in indxs:
             sec = mrc[i]
+            if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
             elif label_it: sec = create_labels(sec)
@@ -60,12 +65,13 @@ def help_msg(err = 0, msg = None):
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -b  --base      The base filename base to use, needs to have a %d to replace with slice number, defaults to '%03d.mha'")
-    print tw.fill("  -x              The x coordinate to extract given as two integers seperated by a comma")
-    print tw.fill("  -y              The y coordinate to extract given as two integers seperated by a comma")
-    print tw.fill("  -z              The slice indices to use, accepts integers with commas and dashes between them")
-    print tw.fill("  -m  --mode      The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
-    print tw.fill("  -s  --sigma     Sigma for Gaussian blurring while saving, defaults to no blurring")
+    print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%03d.mha'")
+    print tw.fill("  -x #,#          The x coordinate to extract given as two integers seperated by a comma")
+    print tw.fill("  -y #,#          The y coordinate to extract given as two integers seperated by a comma")
+    print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
+    print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
+    print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     exit(err)
         
 if __name__ == "__main__":
@@ -82,17 +88,23 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
 
     try:
-        opts, args = getopt(argv[1:], "hb:x:y:z:m:s:", ["help", "base=", "mode=", "sigma="])
+        opts, args = getopt(argv[1:], "hfb:x:y:z:m:s:", ["help", "flip", "base=", "mode=", "sigma="])
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
-    indxs = None
+    flip = False
+    x = None
+    y = None
+    z = None
     basename = None
     mode = None
     sigma = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
+        elif o == "-f" or o == "--flip":
+            if flip: help_msg(2, "Must be only one flip argument")
+            flip = True
         elif o == "-b" or o == "--base":
             if basename != None: help_msg(2, "Must be only one basename argument")
             try:
@@ -152,4 +164,4 @@ if __name__ == "__main__":
     zs = (min(z), max(z)) if z else (0, mrc.nz - 1)
 
     # Do the actual work!
-    mrc2mha(mrc.view(x, y, zs), mha_dir, z, basename, mode, sigma)
+    mrc2mha(mrc.view(x, y, zs), mha_dir, z, basename, mode, flip, sigma)
