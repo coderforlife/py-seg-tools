@@ -222,7 +222,7 @@ class MRC:
     def __setattr__(self, name, value):
         if name == 'header' or not self.header.has_key(name) or not name in MRC.MODIFIABLE_FIELDS: raise AttributeError(name)
         self.header[name] = value
-    def __dir__(self): return self.__dict__.keys() + self.header.keys()
+    def __dir__(self): return sorted(set(dir(self.__class__) + self.__dict__.keys() + self.header.keys()))
     def pixel_spacing(self, spacing = None):
         """Gets or sets the pixel spacing in the header. Does not write the header to disk."""
         h = self.header
