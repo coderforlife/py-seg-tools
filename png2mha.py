@@ -44,7 +44,7 @@ def help_msg(err = 0, msg = None):
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
-    print tw.fill("  %s [args] input.pnt output.mha" % basename(argv[0]))
+    print tw.fill("  %s [args] input.png output.mha" % basename(argv[0]))
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
