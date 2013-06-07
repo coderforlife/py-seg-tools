@@ -102,7 +102,7 @@ if __name__ == "__main__":
             if z != None: help_msg(2, "Must be only one z argument")
             z = []
             for p in a.split(","):
-                if p.isdigit(): # single digit
+                if p.isdigit(): # single number
                     p = int(p)
                     if p < 0: help_msg(2, "Invalid z argument supplied")
                     z.append(p)
@@ -140,9 +140,9 @@ if __name__ == "__main__":
     if sigma    == None: sigma = 0.0
     if basename == None: basename = "%03d.png"
     if x == None: x = (0, mrc.nx - 1)
-    elif x[0] < 0 or x[1] < x[0] or x[1] < mrc.nx: help_msg(2, "Invalid x argument supplied")
+    elif not (x[0] <= x[1] < mrc.nx): help_msg(2, "Invalid x argument supplied")
     if y == None: y = (0, mrc.ny - 1)
-    elif y[0] < 0 or y[1] < y[0] or y[1] < mrc.ny: help_msg(2, "Invalid x argument supplied")
+    elif not (y[0] <= y[1] < mrc.ny): help_msg(2, "Invalid x argument supplied")
     zs = (min(z), max(z)) if z else (0, mrc.nz - 1)
 
     # Do the actual work!

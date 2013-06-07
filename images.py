@@ -173,7 +173,7 @@ class MRC:
 
             if nx <= 0 or ny <= 0 or nz <= 0:        raise IOError('MRC file is invalid (dims are %dx%dx%d)' % (h['nx'], h['ny'], h['nz']))
             if next < 0:                             raise IOError('MRC file is invalid (extended header size is %d)' % h['next'])
-            if nlabl < 0 or nlabl > MRC.LABEL_COUNT: raise IOError('MRC file is invalid (the number of labels is %d)' % h['nlabl'])
+            if not (0 <= nlabl <= MRC.LABEL_COUNT):  raise IOError('MRC file is invalid (the number of labels is %d)' % h['nlabl'])
             if h['nxstart'] !=  0 or h['nystart'] !=  0 or h['nzstart'] !=  0: raise IOError('MRC file is has an unusual start (%d, %d, %d)'       % (h['nxstart'], h['nystart'], h['nzstart']))
             if h['alpha']   != 90 or h['beta']    != 90 or h['gamma']   != 90: raise IOError('MRC file is has an unusual cell angles (%d, %d, %d)' % (h['alpha'], h['beta'], h['gamma']))
             if h['mapc']    !=  1 or h['mapr']    !=  2 or h['maps']    !=  3: raise IOError('MRC file is has an unusual ordering (%d, %d, %d)'    % (h['mapc'], h['mapr'], h['maps']))
