@@ -83,6 +83,7 @@ if __name__ == "__main__":
     y = None
     z = None
     basename = None
+    sigma = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
@@ -232,6 +233,7 @@ if __name__ == "__main__":
     y = None
     z = None
     basename = None
+    sigma = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()

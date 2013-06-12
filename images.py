@@ -256,7 +256,7 @@ class MRC:
         if self.shape != im.shape or self.dtype.base != im.dtype: raise ValueError('im')
         self.file.seek(self.data_offset + i * self.section_full_data_size)
         im.tofile(self.file)
-    def _set_next_section(self, i, im):
+    def _set_next_section(self, im):
         if self.dtype == IM_RGB24 and im.ndim == 2 and im.dtype == IM_RGB24_STRUCT: im = im.view(dtype=IM_RGB24)
         if self.shape != im.shape or self.dtype.base != im.dtype: raise ValueError('im')
         im.tofile(self.file)
@@ -333,11 +333,11 @@ class MRC:
         for lbl in h['labels']:
             if len(lbl) > MRC.LABEL_LEN: raise ValueError('label')
         h['nlabl'] = len(h['labels'])
-        h['next'] = len(h['extra']) if hasattr(h, 'extra') and h['extra'] else 0
+        h['next'] = len(h['extra']) if 'extra' in h and h['extra'] else 0
 
         # Write!
-        if hasattr(h, 'cmap'):
-            if not hasattr(h, 'stamp') or h['cmap'] != MRC.MAP_ or h['stamp'] != MRC.BIG_ENDIAN and h['stamp'] != MRC.LITTLE_ENDIAN: raise ValueError('cmap/stamp')
+        if 'cmap' in h:
+            if 'stamp' not in h or h['cmap'] != MRC.MAP_ or h['stamp'] != MRC.BIG_ENDIAN and h['stamp'] != MRC.LITTLE_ENDIAN: raise ValueError('cmap/stamp')
             endian = '>' if h['stamp'] == MRC.BIG_ENDIAN else '<'
             self.__write_header(MRC.FIELDS, endian + '10i6f3i3fiih30xhh20xii6h6f3f2ifi')
         else:

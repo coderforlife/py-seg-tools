@@ -32,7 +32,7 @@ def png2mrc(pngs, mrc, flip = False, sigma = 0.0):
     except StopIteration: raise ValueError("Must provide at least one PNG")
     mrc = MRC(mrc, nx=png.shape[1], ny=png.shape[0], dtype=png.dtype)
     mrc.append(png)
-    mrc.append_all(pngs) # will skip the first one
+    mrc.append_all((sp_read(png) for png in pngs)) # will skip the first one
     mrc.write_header()
     return mrc
 
@@ -69,6 +69,7 @@ if __name__ == "__main__":
 
     # Parse arguments
     flip = False
+    sigma = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
@@ -85,7 +86,7 @@ if __name__ == "__main__":
     if len(args) < 2: help_msg(2, "You need to provide at least one PNG path/glob and an MRC as arguments")
     mrc_filename = realpath(args[-1])
     pngs = []
-    for png in args[:-1]
+    for png in args[:-1]:
         png = realpath(png)
         if not isfile(png):
             if '*' in png or '?' in png or ('[' in png and ']' in png):
@@ -95,8 +96,6 @@ if __name__ == "__main__":
         else:
             pngs.append(png)
     if len(pngs) == 0: help_msg(2, "No PNGs were found using the given arguments")
-    
-    if not make_dir(png_dir): help_msg(2, "PNG output directory already exists as regular file, choose another directory")
 
     # Get default values for optional args
     if sigma == None: sigma = 0.0

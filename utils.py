@@ -32,10 +32,12 @@ def clear_dir(d, pattern = '*'):
     import os, os.path
     from glob import iglob
     for f in iglob(os.path.join(d, pattern)):
-        try: if os.path.isfile(f): os.unlink(f)
+        try:
+            if os.path.isfile(f): os.unlink(f)
         except Exception, e: pass
     for f in iglob(os.path.join(d, '.'+pattern)):
-        try: if os.path.isfile(f): os.unlink(f)
+        try:
+            if os.path.isfile(f): os.unlink(f)
         except Exception, e: pass
 
 
