@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 
 from utils import check_reqs
-check_reqs(SimpleITK = False)
+check_reqs(PIL = False)
 
 """
-Converts a PNG stack to an MRC file. Runs either as a command line program or as
-an importable function.
+Converts an MHA stack to an MRC file. Runs either as a command line program or
+as an importable function.
 """
 
-def png2mrc(pngs, mrc, flip = False, sigma = 0.0):
+def mha2mrc(mhas, mrc, flip = False, sigma = 0.0):
     """
-    Converts a PNG stack to an MRC file. Returns the new MRC file object.
+    Converts an MHA stack to an MRC file. Returns the new MRC file object.
 
     Arguments:
-    pngs     -- the PNGs to read, an iterable of file names
+    mhas     -- the MHAs to read, an iterable of file names
     mrc      -- the MRC filename to save to
     
     Optional Arguments:
@@ -21,25 +21,25 @@ def png2mrc(pngs, mrc, flip = False, sigma = 0.0):
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
-    from images import sp_read, MRC, flip_up_down, gauss_blur
+    from images import itk_read, MRC, flip_up_down, gauss_blur
 
-    pngs = iter(pngs)
+    mhas = iter(mhas)
     flip = bool(flip)
     sigma = float(sigma)
 
     if flip:
-        read = (lambda f: gauss_blur(flip_up_down(sp_read(x)), sigma)) if sigma != 0.0 else (lambda f: flip_up_down(sp_read(x)))
+        read = (lambda f: gauss_blur(flip_up_down(itk_read(x)), sigma)) if sigma != 0.0 else (lambda f: flip_up_down(itk_read(x)))
     elif sigma != 0.0:
-        read = lambda f: gauss_blur(sp_read(x), sigma)
+        read = lambda f: gauss_blur(itk_read(x), sigma)
     else:
-        read = sp_read
+        read = itk_read
 
     try:
-        png = read(pngs.next())
-    except StopIteration: raise ValueError("Must provide at least one PNG")
-    mrc = MRC(mrc, nx=png.shape[1], ny=png.shape[0], dtype=png.dtype)
-    mrc.append(png)
-    mrc.append_all((read(png) for png in pngs)) # will skip the first one
+        mha = read(mhas.next())
+    except StopIteration: raise ValueError("Must provide at least one MHA")
+    mrc = MRC(mrc, nx=mha.shape[1], ny=mha.shape[0], dtype=mha.dtype)
+    mrc.append(mha)
+    mrc.append_all((read(mha) for mha in mhas)) # will skip the first one
     mrc.write_header()
     return mrc
 
@@ -52,9 +52,9 @@ def help_msg(err = 0, msg = None):
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
-    print tw.fill("  %s [args] input1.png [input2.png ...] output.mrc" % basename(argv[0]))
+    print tw.fill("  %s [args] input1.mha [input2.mha ...] output.mrc" % basename(argv[0]))
     print ""
-    print tw.fill("You may also use a glob-like syntax for any of the input files, such as 'folder/*.png' or '[0-9][0-9][0-9].png'")
+    print tw.fill("You may also use a glob-like syntax for any of the input files, such as 'folder/*.mha' or '[0-9][0-9][0-9].mha'")
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
@@ -90,22 +90,22 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
 
     # Make sure paths are good
-    if len(args) < 2: help_msg(2, "You need to provide at least one PNG path/glob and an MRC as arguments")
+    if len(args) < 2: help_msg(2, "You need to provide at least one MHA path/glob and an MRC as arguments")
     mrc_filename = realpath(args[-1])
-    pngs = []
-    for png in args[:-1]:
-        png = realpath(png)
-        if not isfile(png):
-            if '*' in png or '?' in png or ('[' in png and ']' in png):
-                pngs.extend(sorted(iglob(png)))
+    mhas = []
+    for mha in args[:-1]:
+        mha = realpath(mha)
+        if not isfile(mha):
+            if '*' in mha or '?' in mha or ('[' in mha and ']' in mha):
+                mhas.extend(sorted(iglob(mha)))
             else:
-                help_msg(2, "PNG file does not exist: %s", png)
+                help_msg(2, "MHA file does not exist: %s", mha)
         else:
-            pngs.append(png)
-    if len(pngs) == 0: help_msg(2, "No PNGs were found using the given arguments")
+            mhas.append(mha)
+    if len(mhas) == 0: help_msg(2, "No MHAs were found using the given arguments")
 
     # Get default values for optional args
     if sigma == None: sigma = 0.0
 
     # Do the actual work!
-    png2mrc(pngs, mrc_filename, flip, sigma)
+    mha2mrc(mhas, mrc_filename, flip, sigma)
