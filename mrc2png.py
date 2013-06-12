@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from utils import check_reqs
-check_reqs()
+check_reqs(SimpleITK = False)
 
 """
 Converts an MRC file to a PNG stack. Runs either as a command line program or as
@@ -68,9 +68,7 @@ if __name__ == "__main__":
     from sys import argv
     from getopt import getopt, error as getopt_error
 
-    from utils import make_dir, check_reqs
-    check_reqs()
-
+    from utils import make_dir
     from images import MRC
     
     

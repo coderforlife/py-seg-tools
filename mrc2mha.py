@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+from utils import check_reqs
+check_reqs(PIL = False)
+
 """
 Converts an MRC file to an MHA stack. Runs either as a command line program or
 as an importable function.
@@ -80,9 +83,7 @@ if __name__ == "__main__":
     from getopt import getopt, error as getopt_error
     from math import isnan
     
-    from utils import make_dir, check_reqs
-    check_reqs()
-
+    from utils import make_dir
     from images import MRC
 
     if len(argv) < 2: help_msg(1)

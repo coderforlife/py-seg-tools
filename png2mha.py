@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+from utils import check_reqs
+check_reqs()
+
 """
 Converts PNG file to an MHA file. Runs either as a command line program or as an
 importable function.
@@ -58,9 +61,6 @@ if __name__ == "__main__":
     from sys import argv
     from getopt import getopt, error as getopt_error
     from math import isnan
-    
-    from utils import check_reqs
-    check_reqs()
 
     if len(argv) < 2: help_msg(1)
 
