@@ -7,7 +7,7 @@ On Linux you can install them using something similar to:
 On Windows I recommend installing Python(x,y) then installing SimpleITK from an
 administrator command line with "easy_install SimpleITK".
 
-Currently there are six Python scripts:
+Currently there are five Python scripts:
  * mrc2png
  * mrc2mha
  * png2mha
