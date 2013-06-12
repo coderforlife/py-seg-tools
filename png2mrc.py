@@ -90,7 +90,7 @@ if __name__ == "__main__":
         png = realpath(png)
         if not isfile(png):
             if '*' in png or '?' in png or ('[' in png and ']' in png):
-                pngs.extend(iglob(png))
+                pngs.extend(sorted(iglob(png)))
             else:
                 help_msg(2, "PNG file does not exist: %s", png)
         else:
