@@ -112,6 +112,10 @@ class MRC:
 
             # Get the mode
             endian = dtype.byteorder
+            if endian == '|': endian = '<' # | means N/A (single byte), we will save the header as little-endian
+            elif endian == '=': # is native byte-order
+                from sys import byteorder # get the native byte order as 'little' or 'big'
+                endian = '<' if byteorder == 'little' else '>'
             next = 0
             if dtype == IM_RGB24 or dtype == IM_RGB24_STRUCT: mode = MRC.BYTE_3; dtype = IM_RGB24
             elif dtype == IM_BYTE   or dtype == IM_SBYTE:     mode = MRC.BYTE
