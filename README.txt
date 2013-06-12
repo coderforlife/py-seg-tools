@@ -7,10 +7,12 @@ On Linux you can install them using something similar to:
 On Windows I recommend installing Python(x,y) then installing SimpleITK from an
 administrator command line with "easy_install SimpleITK".
 
-Currently there are three Python scripts:
+Currently there are six Python scripts:
  * mrc2png
  * mrc2mha
  * png2mha
+ * png2mrc
+ * mha2mrc
 
 --- Formats Supported ---
 These are a bit misnamed becaumse they actually support many image formats.
@@ -58,6 +60,7 @@ When outputing to an ITK format you can also convert the data itself by using
 MRC files are any files that are IMOD image stacks (they may have different
 file extensions, such as REC, ST, ALI, or PRE-ALI). The input is the MRC file
 while the output is a directory where all the different slices will be output.
+Currently MRC files in complex format (modes 3 and 4) are unsupported.
 
 You can use -x #,# and -y #,# to extract a subimage for each section.
 Additionally  you can use -z to specify which slices to extract. "z" supports
@@ -69,3 +72,11 @@ from the slice it came from, with leading 0s if necessary. To change this use
 as 3 digits with leading zeros or just %d for the number. The basename must
 include the file extension. By using an extension besides png or mha the file
 format will be different.
+
+
+--- Conversion to MRC stack: png2mrc and mha2png ---
+When writing an MRC you supply many input files before you give the output MRC
+file. The input files can be different file types (as long as they are all
+supported by the current reader: SciPy/PIL or SimpleITK). Additionally, you can
+use inputs that have glob-like syntax (e.g. folder/*.png, [0-9][0-9].png, etc).
+
