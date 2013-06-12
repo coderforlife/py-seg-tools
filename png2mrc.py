@@ -27,12 +27,19 @@ def png2mrc(pngs, mrc, flip = False, sigma = 0.0):
     flip = bool(flip)
     sigma = float(sigma)
 
+    if flip:
+        read = (lambda f: gauss_blur(flip_up_down(sp_read(x)), sigma)) if sigma != 0.0 else (lambda f: flip_up_down(sp_read(x)))
+    elif sigma != 0.0:
+        read = lambda f: gauss_blur(sp_read(x), sigma)
+    else:
+        read = sp_read
+
     try:
-        png = sp_read(pngs.next())
+        png = read(pngs.next())
     except StopIteration: raise ValueError("Must provide at least one PNG")
     mrc = MRC(mrc, nx=png.shape[1], ny=png.shape[0], dtype=png.dtype)
     mrc.append(png)
-    mrc.append_all((sp_read(png) for png in pngs)) # will skip the first one
+    mrc.append_all((read(png) for png in pngs)) # will skip the first one
     mrc.write_header()
     return mrc
 
