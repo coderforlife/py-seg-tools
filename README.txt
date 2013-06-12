@@ -77,6 +77,6 @@ format will be different.
 --- Conversion to MRC stack: png2mrc and mha2png ---
 When writing an MRC you supply many input files before you give the output MRC
 file. The input files can be different file types (as long as they are all
-supported by the current reader: SciPy/PIL or SimpleITK). Additionally, you can
-use inputs that have glob-like syntax (e.g. folder/*.png, [0-9][0-9].png, etc).
+supported by the current reader: SciPy/PIL or ITK). Additionally, you can use
+inputs that have glob-like syntax (e.g. folder/*.png, [0-9][0-9].png, etc).
 

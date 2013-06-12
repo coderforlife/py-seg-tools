@@ -56,8 +56,8 @@ def help_msg(err = 0, msg = None):
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
     print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%03d.png'")
-    print tw.fill("  -x #,#          The x coordinate to extract given as two integers seperated by a comma")
-    print tw.fill("  -y #,#          The y coordinate to extract given as two integers seperated by a comma")
+    print tw.fill("  -x #-#          The x coordinate to extract given as two integers seperated by a dash")
+    print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
     print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
@@ -113,12 +113,12 @@ if __name__ == "__main__":
             z.sort()
         elif o == "-x":
             if x != None: help_msg(2, "May be only one x argument")
-            x = x.split(",")
+            x = x.split("-")
             if len(x) != 2 or not x[0].isdigit() or not x[1].isdigit(): help_msg(2, "Invalid x argument supplied")
             x = (int(x[0]), int(x[1]))
         elif o == "-y":
             if y != None: help_msg(2, "May be only one y argument")
-            y = y.split(",")
+            y = y.split("-")
             if len(y) != 2 or not y[0].isdigit() or not y[1].isdigit(): help_msg(2, "Invalid y argument supplied")
             y = (int(y[0]), int(y[1]))
         elif o == "-s" or o == "--sigma":
