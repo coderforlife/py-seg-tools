@@ -24,6 +24,17 @@ def make_dir(d):
     except: return False
 
 
+def clear_dir(d, pattern = '*'):
+    import os, os.path
+    from glob import iglob
+    for f in iglob(os.path.join(d, pattern)):
+        try: if os.path.isfile(f): os.unlink(f)
+        except Exception, e: pass
+    for f in iglob(os.path.join(d, '.'+pattern)):
+        try: if os.path.isfile(f): os.unlink(f)
+        except Exception, e: pass
+
+
 def get_terminal_width():
     from os import environ
     from sys import platform
