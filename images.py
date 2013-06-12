@@ -158,10 +158,14 @@ class MRC:
             vers = unpack('<ii', raw[208:216])
             endian = '<'
             if vers[0] == MRC.MAP_:
-                if vers[1] == MRC.BIG_ENDIAN:
+                en = vers[1]
+                en_1 = en & 0xFF
+                en_432 = en & 0xFFFFFF00
+                if en == MRC.BIG_ENDIAN or (en_1 == (MRC.BIG_ENDIAN & 0xFF) and en_432 == 0):
                     endian = '>'
-                elif vers[1] != MRC.LITTLE_ENDIAN:
-                    raise IOError('MRC file is invalid (stamp is 0x%08x)' % vers[1])
+                elif en != MRC.LITTLE_ENDIAN and (en_1 != (MRC.LITTLE_ENDIAN & 0xFF) or en_432 != 0):
+                    f.close()
+                    raise IOError('MRC file is invalid (stamp is 0x%08x)' % en)
                 h = dict(zip(MRC.FIELDS, unpack(endian + '10i6f3i3fiih30xhh20xii6h6f3f2ifi', raw)))
             else:
                 h = dict(zip(MRC.FIELDS_OLD, unpack('<10i6f3i3fiih30xhh20xii6h6f6h3fi', raw)))
@@ -171,12 +175,12 @@ class MRC:
             mode = h['mode']
             next, nlabl = h['next'], h['nlabl']
 
-            if nx <= 0 or ny <= 0 or nz <= 0:        raise IOError('MRC file is invalid (dims are %dx%dx%d)' % (h['nx'], h['ny'], h['nz']))
-            if next < 0:                             raise IOError('MRC file is invalid (extended header size is %d)' % h['next'])
-            if nlabl < 0 or nlabl > MRC.LABEL_COUNT: raise IOError('MRC file is invalid (the number of labels is %d)' % h['nlabl'])
-            if h['nxstart'] !=  0 or h['nystart'] !=  0 or h['nzstart'] !=  0: raise IOError('MRC file is has an unusual start (%d, %d, %d)'       % (h['nxstart'], h['nystart'], h['nzstart']))
-            if h['alpha']   != 90 or h['beta']    != 90 or h['gamma']   != 90: raise IOError('MRC file is has an unusual cell angles (%d, %d, %d)' % (h['alpha'], h['beta'], h['gamma']))
-            if h['mapc']    !=  1 or h['mapr']    !=  2 or h['maps']    !=  3: raise IOError('MRC file is has an unusual ordering (%d, %d, %d)'    % (h['mapc'], h['mapr'], h['maps']))
+            if nx <= 0 or ny <= 0 or nz <= 0:        f.close(); raise IOError('MRC file is invalid (dims are %dx%dx%d)' % (h['nx'], h['ny'], h['nz']))
+            if next < 0:                             f.close(); raise IOError('MRC file is invalid (extended header size is %d)' % h['next'])
+            if nlabl < 0 or nlabl > MRC.LABEL_COUNT: f.close(); raise IOError('MRC file is invalid (the number of labels is %d)' % h['nlabl'])
+            if h['nxstart'] !=  0 or h['nystart'] !=  0 or h['nzstart'] !=  0: f.close(); raise IOError('MRC file is has an unusual start (%d, %d, %d)'       % (h['nxstart'], h['nystart'], h['nzstart']))
+            if h['alpha']   != 90 or h['beta']    != 90 or h['gamma']   != 90: f.close(); raise IOError('MRC file is has an unusual cell angles (%d, %d, %d)' % (h['alpha'], h['beta'], h['gamma']))
+            if h['mapc']    !=  1 or h['mapr']    !=  2 or h['maps']    !=  3: f.close(); raise IOError('MRC file is has an unusual ordering (%d, %d, %d)'    % (h['mapc'], h['mapr'], h['maps']))
 
             # TODO: validate mx, my, mz - grid size in X, Y, and Z (are these always equal to nx, ny, nz?)
 
@@ -193,8 +197,10 @@ class MRC:
             elif mode == MRC.USHORT: dtype = IM_USHORT.newbyteorder(endian)
             elif mode == MRC.BYTE_3: dtype = IM_RGB24
             elif mode == MRC.SHORT_2 or mode == MRC.FLOAT_2:
+                f.close()
                 raise IOError('MRC file uses a complex format which is not supported')
             else:
+                f.close()
                 raise IOError('MRC file is invalid (mode is %d)' % mode)
 
         # Precompute these for getting sections fast
