@@ -1,17 +1,21 @@
-def check_reqs():
+def check_reqs(scipy = True, numpy = True, PIL = True, SimpleITK = True):
     def __die(name):
         from sys import stderr, exit
         print >> stderr, "Could not import the required module %s" % name
         print >> stderr, "Try running 'easy_install %s' to install it" % name
         exit(1)
-    try: import scipy
-    except: __die('scipy')
-    try: import numpy
-    except: __die('numpy')
-    try: import PIL
-    except: __die('PIL')
-    try: import SimpleITK
-    except: __die('SimpleITK')
+    if scipy:
+        try: import scipy
+        except: __die('scipy')
+    if numpy:
+        try: import numpy
+        except: __die('numpy')
+    if PIL:
+        try: import PIL
+        except: __die('PIL')
+    if SimpleITK:
+        try: import SimpleITK
+        except: __die('SimpleITK')
 
 
 def make_dir(d):
