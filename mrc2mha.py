@@ -81,7 +81,7 @@ if __name__ == "__main__":
     from math import isnan
     
     from utils import make_dir, check_reqs
-    check_reqs()
+    check_reqs(PIL = False)
 
     from images import MRC
 

@@ -69,7 +69,7 @@ if __name__ == "__main__":
     from getopt import getopt, error as getopt_error
 
     from utils import make_dir, check_reqs
-    check_reqs()
+    check_reqs(SimpleITK = False)
 
     from images import MRC
     
