@@ -38,7 +38,6 @@ class Process:
         The process does not run until run() is called on this process or a process that depends on this process.
         """
         self.cmd = cmd
-        self.cmd = ['./test.py', str(self)] #./test.py
         self.cwd = cwd
         self._init_deps(dependencies)
     def _init_deps(self, dependencies):

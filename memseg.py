@@ -101,9 +101,9 @@ def help_msg(err = 0, msg = None):
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
-    print tw.fill("  %s [args] training.mrc training.mod full.mrc" % os.path.basename(argv[0]))
+    print tw.fill("  %s [args] training.mrc training.mod full.mrc output.mod" % os.path.basename(argv[0]))
     #print "    or "
-    #print tw.fill("  %s [args] full.mrc --training=x1,y1,z1,x2,y2,z2 training.mod" % os.path.basename(argv[0]))
+    #print tw.fill("  %s [args] full.mrc --training=x1,y1,z1,x2,y2,z2 training.mod output.mod" % os.path.basename(argv[0]))
     print ""
     print "Required arguments:"
     print tw.fill("  -w  --water-lvl The watershed water level parameter, use <=0.01") # TODO: or 0.005?
@@ -131,9 +131,6 @@ if __name__ == "__main__":
     from getopt import getopt, error as getopt_error
     from glob import glob
     from math import isnan
-    global max_subprocces
-
-    argv = [argv[0], '-w0.005', 'subvolume.ali', 'run1-a.mod', 'run1-a-2.ali']
 
     if len(argv) < 2: help_msg(1)
 
@@ -158,12 +155,12 @@ if __name__ == "__main__":
             temp = os.path.realpath(a)
         elif o == "-j" or o == "--jobs":
             if jobs != None: help_msg(2, "Must be only one jobs argument")
-            if not a.isdigit() or int(a) <= 0: help_msg(2, "Number of jobs must be a positive integer")
+            if not a.isdigit() or int(a) == 0: help_msg(2, "Number of jobs must be a positive integer")
             jobs = int(a)
 ##        elif o == "-z":
 ##            if z != None: die("Must be only one z argument", 2)
 ##            z = [int(s) for s in a.split(',') if s.isdigit()]
-##            if len(z) != 0 or z[0] < 0 or z[1] < z[0]: help_msg(2, "The z argument must be in the form of #,# where # are non-negative integers")
+##            if len(z) != 0 or z[1] < z[0]: help_msg(2, "The z argument must be in the form of #,# where # are non-negative integers")
         elif o == "-w" or o == "--water-lvl":
             if wl != None: help_msg(2, "Must be only one water-lvl argument")
             try: wl = float(a)
@@ -181,28 +178,30 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
         elif o == "-n" or o == "--num-trees":
             if treeNum != None: help_msg(2, "Must be only one num-trees argument")
-            if not a.isdigit() or int(a) <= 0 or int(a) >= 40: help_msg(2, "treeNum must be a positive integer")
+            if not a.isdigit() or int(a) == 0: help_msg(2, "treeNum must be a positive integer")
             treeNum = int(a)
         elif o == "-M" or o == "--mtry":
             if mtry != None: help_msg(2, "Must be only one mtry argument")
-            if not a.isdigit() or int(a) <= 0 or int(a) >= 40: help_msg(2, "mtry must be a positive integer much less than 85")
+            if not a.isdigit() or not (0 < int(a) < 40): help_msg(2, "mtry must be a positive integer much less than 85")
             mtry = int(a)
         elif o == "-s" or o == "--samp-size":
             if sampSize != None: help_msg(2, "Must be only one samp-size argument")
             try: sampSize = float(a)
             except: help_msg(2, "Samp-size must be a floating-point number between 0.0 and 1.0")
-            if sampSize <= 0 or sampSize >= 1 or isnan(sampSize): help_msg(2, "Samp-size must be a floating-point number between 0.0 and 1.0")
+            if not (0 <= sampSize <= 1) or isnan(sampSize): help_msg(2, "Samp-size must be a floating-point number between 0.0 and 1.0")
 
     # Check the MRC/MOD arguments
-    if len(args) != 3: help_msg(2, "You need to provide a training MRC and MOD file along with a full dataset MRC file as arguments")
+    if len(args) != 4: help_msg(2, "You need to provide a training MRC and MOD file along with a full dataset MRC file as arguments")
     mrc_t_filename = os.path.realpath(args[0])
     if not os.path.exists(mrc_t_filename): help_msg(2, "Training MRC file does not exist")
     mod_t_filename = os.path.realpath(args[1])
     if not os.path.exists(mod_t_filename): help_msg(2, "Training MOD file does not exist")
     mrc_f_filename = os.path.realpath(args[2])
     if not os.path.exists(mrc_f_filename): help_msg(2, "Full dataset MRC file does not exist")
+    mod_output = os.path.realpath(args[3])
+    if os.path.exists(mod_output) and os.path.isdir(mod_output): help_msg(2, "Output MOD file exists and is a directory")
     try: mrc_t = MRC(mrc_t_filename)
-    except BaseException as e: help_msg(2, "Failed to open training MRC file: " + str(e))
+    except BaseException as e: help_msg(2, "Failed to open training dataset MRC file: " + str(e))
     try: mrc_f = MRC(mrc_f_filename)
     except BaseException as e: help_msg(2, "Failed to open full dataset MRC file: " + str(e))
         
@@ -255,7 +254,7 @@ if __name__ == "__main__":
     f_p_mha    = [('f_p_mha/%03d.mha'   % i) for i in zs_f] # full probabilty map (MHA)
     f_p_blur   = [('f_p_blur/%03d.mha'  % i) for i in zs_f] # full probabilty map (MHA-blurred)
     t_p_png_folder = 't_p_png'
-    t_p_png    = [('t_p_png/*.%03d_cv2_float.png' % i) for i in zs_t] # TODO: full probabilty map (PNG)
+    t_p_png    = [('t_p_png/%03d_cv2_float.png' % i) for i in zs_t] # TODO: full probabilty map (PNG)
     t_p_mha    = [('t_p_mha/%03d.mha'   % i) for i in zs_t] # training probabilty map (MHA)
     t_p_blur   = [('t_p_blur/%03d.mha'  % i) for i in zs_t] # training probabilty map (MHA-blurred)
 
@@ -275,7 +274,18 @@ if __name__ == "__main__":
     f_bcf      = [('f_bcf/%03d.ssv'     % i) for i in zs_f] # full segmentation features
     f_bcp      = [('f_bcp/%03d.ssv'     % i) for i in zs_f] # full segmentation predictions
 
-    seg_mha    = [('seg/%03d.mha'       % i) for i in zs_f] # TODO: 
+    seg_pts    = [('seg_pts/%03d.pts'   % i) for i in zs_f] # the final segementation points for each section
+    seg_pts_folder = 'seg_pts'
+    seg_pts_all = 'segmentation.pts' # the final segementation points for all sections
+
+
+    ### Clean out temporary directories ###
+    clear_dir(f_d_png_folder, "*.png")
+    clear_dir(t_s_bw_png_folder, ".png")
+    clear_dir(t_d_png_folder, "*.png")
+    clear_dir(f_p_png_folder, "*.png")
+    clear_dir(t_p_png_folder) # temp directory has lots of stuff in it
+
 
     ### Convert input files ###
     p_f_d_png    = Process(('mrc2png', mrc_f_filename, f_d_png_folder), cwd=temp)
@@ -337,13 +347,14 @@ if __name__ == "__main__":
     # 6 - Generate Predictions
     p_f_bcp      = rf_predict_procs(bcmodel, f_bcf, f_bcp, p_bcmodel, p_f_bfeat, temp)
     # 7 - Segment
-    # TODO: output format (the 1 and 0) is currently set to PNG black/white (0/1 would be MHA numbered)
-    p_seg_mha    = [Process(('segment', iseg, t, bcp, '0', '1', '0', 'NULL', s), (pbcp,), cwd=temp) # + p_f_is, p_f_merge
-                    for iseg, t, bcp, s, pbcp in zip(f_is, f_tree, f_bcp, seg_mha, p_f_bcp)]
+    p_seg_pts    = [Process(('segmentToContours', iseg, t, bcp, z, sp), (pbcp,), cwd=temp) # + p_f_is, p_f_merge
+                    for iseg, t, bcp, z, sp, pbcp in zip(f_is, f_tree, f_bcp, zs_f, seg_pts, p_f_bcp)]
+    
 
-    ### Final Conversion ###
-    # TODO
-    p = Process(('TODO: final conversion'), (p_seg_mha), cwd=temp)
+    ### Convert output files ###
+    p_seg_pts_all = Process(['combine_points',] + seg_pts + [seg_pts_all,], p_seg_pts, cwd=temp)
+    # TODO: -im and pixel spacing?
+    p_seg_mod = Process(('point2model', '-im', mrc_f_filename, seg_pts_all, mod_output), (p_seg_pts_all,), cwd=temp)
 
 
-    p.run()
+    p_seg_mod.run()
