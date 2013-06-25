@@ -62,7 +62,7 @@ file extensions, such as REC, ST, ALI, or PRE-ALI). The input is the MRC file
 while the output is a directory where all the different slices will be output.
 Currently MRC files in complex format (modes 3 and 4) are unsupported.
 
-You can use -x #,# and -y #,# to extract a subimage for each section.
+You can use -x #-# and -y #-# to extract a subimage for each section.
 Additionally  you can use -z to specify which slices to extract. "z" supports
 any combination of comma seperated slices or ranges using a dash (e.g. 3,5-9).
 
