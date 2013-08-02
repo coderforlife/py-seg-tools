@@ -118,7 +118,7 @@ class Process:
             # Release the process-count lock
             Process.__semaphore.release()
         
-    def run(self):
+    def run(self, verbose=False):
         """
         Runs this process after running all necessary dependencies. Will not return until the process is finished.
         """
@@ -154,6 +154,7 @@ class Process:
             
             t = Thread(target=min.__run)
             t.daemon = True
+            if verbose: print "Running "+str(min)
             t.start()
 
         # Wait for the root process to finish

@@ -18,6 +18,7 @@ from process import Process
 #  Integrate Mojtaba's code correctly (inc getting those temp files)
 #  Add final step
 #  Add step #1.5
+#  Make smart-restart
 #  Allow training mask to be supplied instead of training model
 #  Add extra arguments for imodmop conversion
 #  Do training subvolumes for speed (instead of assuming training is independent of full)
@@ -170,7 +171,7 @@ if __name__ == "__main__":
             if contract != None: help_msg(2, "Must be only one contract argument")
             try: contract = float(a)
             except: help_msg(2, "Contract must be a floating-point number")
-            if isnan(contact): help_msg(2, "Contact must be a floating-point number")
+            if isnan(contract): help_msg(2, "Contract must be a floating-point number")
         elif o == "-S" or o == "--sigma":
             if sigma != None: help_msg(2, "Must be only one sigma argument")
             try: sigma = float(a)
@@ -357,4 +358,4 @@ if __name__ == "__main__":
     p_seg_mod = Process(('point2model', '-im', mrc_f_filename, seg_pts_all, mod_output), (p_seg_pts_all,), cwd=temp)
 
 
-    p_seg_mod.run()
+    p_seg_mod.run(verbose = True)
