@@ -125,7 +125,8 @@ class Process:
 
         from threading import BoundedSemaphore, Condition, Thread 
         from heapq import heapify, heappop
-
+        from time import strftime
+            
         # Checks
         if self.proc != None: raise ValueError('Process already started')
         if Process.__semaphore != None: raise ValueError('Another process tree is already running')
@@ -154,7 +155,7 @@ class Process:
             
             t = Thread(target=min.__run)
             t.daemon = True
-            if verbose: print "Running "+str(min)
+            if verbose: print strftime("%Y-%m-%d %H:%M:%S") + " Running " + str(min)
             t.start()
 
         # Wait for the root process to finish
