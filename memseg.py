@@ -235,18 +235,17 @@ if __name__ == "__main__":
     ## All of the file names that will be used, relative to temporary directory
     f_d_png_folder = 'f_d_png'
     t_d_png_folder = 't_d_png'
-    f_d_blur_folder = 'f_d_blur'
-    t_d_blur_folder = 't_d_blur'
-    t_s_bw_png_folder = 't_s_png'
-    t_s_clr_mha_folder = 't_s_mha'
-
     f_d_png    = [('f_d_png/%03d.png'   % i) for i in zs_f] # full dataset     (PNG)
     t_d_png    = [('t_d_png/%03d.png'   % i) for i in zs_t] # training dataset (PNG)
+    f_d_blur_folder = 'f_d_blur'
+    t_d_blur_folder = 't_d_blur'
     f_d_blur   = [('f_d_blur/%03d.mha'  % i) for i in zs_f] # full dataset     (MHA-blurred)
     t_d_blur   = [('t_d_blur/%03d.mha'  % i) for i in zs_t] # training dataset (MHA-blurred)
 
     t_s_bw     = 't_s_bw.mrc'  # training labels (black and white)
     t_s_clr    = 't_s_clr.mrc' # training labels (colored)
+    t_s_bw_png_folder = 't_s_bw'
+    t_s_clr_mha_folder = 't_s_clr'
     t_s_bw_png = [('t_s_bw/%03d.png'    % i) for i in zs_t] # training labels  (PNG - black and white)
     t_s_clr_mha= [('t_s_clr/%03d.mha'   % i) for i in zs_t] # training labels  (MHA - colored)
 
