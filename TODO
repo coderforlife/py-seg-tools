@@ -10,6 +10,5 @@ create_labels:
  * support negative values in signed types
 Process:
  * figure out why EPD deadlocks
- * figure out why system Python is not doing all commands
  * test PythonProcess and PythonThread
- * speed up initial tree/graph algorithms __get_all_leaves and ancestors
+ * add smart-restart system (logging)
