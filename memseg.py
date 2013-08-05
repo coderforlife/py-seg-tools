@@ -12,10 +12,9 @@ from utils import *
 check_reqs()
 
 from images import *
-from process import Process
+from tasks import Tasks
 
 # TODO:
-#  Integrate Mojtaba's code correctly (inc getting those temp files)
 #  Add final step
 #  Add step #1.5
 #  Make smart-restart
@@ -24,8 +23,9 @@ from process import Process
 #  Do training subvolumes for speed (instead of assuming training is independent of full)
 
 from sys import stdout
-stdout = os.fdopen(stdout.fileno(), 'w', 0)
-stderr = os.fdopen(stderr.fileno(), 'w', 0)
+if hasattr(stdout, 'fileno'):
+    stdout = os.fdopen(stdout.fileno(), 'w', 0)
+    stderr = os.fdopen(stderr.fileno(), 'w', 0)
 
 
 def imodmop_cmd(args, model, in_mrc, out_mrc, contract = 0):
@@ -69,31 +69,27 @@ def rf_train_cmd(bcfeats, bclabels, treeNum, mtry, sampsize=0, output='bcmodel')
     return args
 
 # Generate Predictions
-def rf_predict_procs(model, features, predictions, p_bcmodel, p_features, cwd = None):
-    if len(features) == 0 or len(features) != len(predictions) or len(features) != len(p_features): raise ValueError()
+def rf_predict_procs(proc, model, features, predictions):
+    if len(features) == 0 or len(features) != len(predictions): raise ValueError()
     base = ['rf_predict', model, '1']
     cnt = len(features)
-    max = int(Process.get_max_count())
-    procs = [ None ] * cnt
+    max = int(Tasks.get_max_at_once())
     if cnt < max:
         ranges = ([x] for x in xrange(cnt))
     else:
-        ranges = []
-        n = cnt / max
-        r = cnt % max
-        x = 0
+        ranges, n, r, x = [], cnt / max, cnt % max, 0
         for _ in xrange(r):      ranges.append(range(x, x + n + 1, 1)); x += n + 1
         for _ in xrange(r, max): ranges.append(range(x, x + n, 1)); x += n
     for r in ranges:
         args = base[:]
-        deps = [p_bcmodel,]
+        inputs = [model,]
+        outputs = []
         for i in r:
             args.append('-f'); args.append(features[i])
             args.append('-p'); args.append(predictions[i])
-            deps.append(p_features[i])
-        p = Process(args, deps, cwd=cwd)
-        for i in r: procs[i] = p
-    return procs
+            inputs.append(features[i])
+            outputs.append(predictions[i])
+        proc.add(args, inputs, outputs)
 
 
 def help_msg(err = 0, msg = None):
@@ -132,6 +128,8 @@ if __name__ == "__main__":
     from getopt import getopt, error as getopt_error
     from glob import glob
     from math import isnan
+
+    #argv = [argv[0], '-w0.005', 'training.mrc', 'training.mod', 'full.mrc', 'output.mod']
 
     if len(argv) < 2: help_msg(1)
 
@@ -208,15 +206,22 @@ if __name__ == "__main__":
         
     # Check the required arguments and set defaults for optional args
     if wl       == None: help_msg(2, "water-lvl is a required argument")
-    if jobs     != None: Process.set_max_count(jobs)
+    if jobs     != None: Tasks.set_max_at_once(jobs)
     if contract == None: contract = 0
     if sigma    == None: sigma = 1.0
     if treeNum  == None: treeNum = 255
     if mtry     == None: mtry = 0
+    if sampSize == None: sampSize = 0.66666666666667
 
-    # Create temporary directory
+    # Create temporary directory (and make paths relative)
     if temp == None: temp = os.path.realpath(os.path.join(os.getcwd(), "temp"))
     if not make_dir(temp): help_msg(2, "Temporary directory already exists as regular file, choose another directory")
+    # TODO: make paths somewhat relative - os.path.commonprefix
+    mrc_t_filename = os.path.relpath(mrc_t_filename, temp)
+    mod_t_filename = os.path.relpath(mod_t_filename, temp)
+    mrc_f_filename = os.path.relpath(mrc_f_filename, temp)
+    mod_output = os.path.relpath(mod_output, temp)
+    
 
     # TODO: support subvolume for speed
     zs_t = range(len(mrc_t))
@@ -230,7 +235,6 @@ if __name__ == "__main__":
     # They begin with "f_" and "t_" to represent the full and training datasets respectively
     # The first set (during image conversions) have "d_" for raw data and "s_" for label/segmented data while the end is the file type (PNG, MHA, or MHA-blurred [simply blur])
     # Other names end with some sort of short descriptor of the contents (is = initial segmentation, tree = seg tree, sal = seg saliency, ...)
-    # Later on the variables get "p_" added to the front to represent the process(es) that create those files
 
     ## All of the file names that will be used, relative to temporary directory
     f_d_png_folder = 'f_d_png'
@@ -280,81 +284,78 @@ if __name__ == "__main__":
 
 
     ### Clean out temporary directories ###
-    clear_dir(f_d_png_folder, "*.png")
-    clear_dir(t_s_bw_png_folder, ".png")
-    clear_dir(t_d_png_folder, "*.png")
-    clear_dir(f_p_png_folder, "*.png")
-    clear_dir(t_p_png_folder) # temp directory has lots of stuff in it
+    # TODO: support this and smart-restart
+    #clear_dir(f_d_png_folder, "*.png")
+    #clear_dir(t_s_bw_png_folder, ".png")
+    #clear_dir(t_d_png_folder, "*.png")
+    #clear_dir(f_p_png_folder, "*.png")
+    #clear_dir(t_p_png_folder) # temp directory has lots of stuff in it
 
+    memseg = Tasks('memseg.log',
+                   {'waterlevel':wl,'contract':contract,'sigma':sigma,'number-of-trees':treeNum,'mtry':mtry,'sample-size':sampSize},
+                   workingdir = temp)
 
     ### Convert input files ###
-    p_f_d_png    = Process(('mrc2png', mrc_f_filename, f_d_png_folder), cwd=temp)
-    p_t_d_png    = Process(('mrc2png', mrc_t_filename, t_d_png_folder), cwd=temp)
+    memseg.add(('mrc2png', mrc_f_filename, f_d_png_folder), (mrc_f_filename,), f_d_png)
+    memseg.add(('mrc2png', mrc_t_filename, t_d_png_folder), (mrc_t_filename,), t_d_png)
 
-    p_f_d_blur   = Process(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), cwd=temp)
-    p_t_d_blur   = Process(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), cwd=temp)
+    memseg.add(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), (mrc_f_filename,), f_d_blur, ('sigma',))
+    memseg.add(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), (mrc_t_filename,), t_d_blur, ('sigma',))
 
-    p_t_s_bw     = Process(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw, contract), cwd=temp) # TODO: support extra args
-    p_t_s_clr    = Process(create_color_mask_cmd(mod_t_filename, mrc_t_filename, t_s_clr, contract), cwd=temp) # TODO: support extra args
+    memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), (t_s_bw, ), ('contract',)) # TODO: support extra args
+    memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), (t_s_clr,), ('contract',)) # TODO: support extra args
 
-    p_t_s_bw_png = Process(('mrc2png', t_s_bw, t_s_bw_png_folder), (p_t_s_bw,), cwd=temp)
-    p_t_s_clr_mha= Process(('mrc2mha', '-mlabel', t_s_clr, t_s_clr_mha_folder), (p_t_s_clr,), cwd=temp)
+    memseg.add(('mrc2png',            t_s_bw,  t_s_bw_png_folder ), (t_s_bw, ), t_s_bw_png )
+    memseg.add(('mrc2mha', '-mlabel', t_s_clr, t_s_clr_mha_folder), (t_s_clr,), t_s_clr_mha)
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
-    p_p_png      = Process(('moj-seg', t_d_png_folder, t_s_bw_png_folder, f_d_png_folder, f_p_png_folder, t_p_png_folder), (p_t_d_png, p_f_d_png, p_t_s_bw_png), cwd=temp)
-    p_f_p_mha    = [Process(('png2mha', '-mfloat', png, mha), (p_p_png,), cwd=temp) for png, mha in zip(f_p_png, f_p_mha)]
-    p_t_p_mha    = [Process(('png2mha', '-mfloat', png, mha), (p_p_png,), cwd=temp) for png, mha in zip(t_p_png, t_p_mha)]
+    memseg.add(('moj-seg', t_d_png_folder, t_s_bw_png_folder, f_d_png_folder, f_p_png_folder, t_p_png_folder), t_d_png+t_s_bw_png+f_d_png, f_p_png+t_p_png)
+    [memseg.add(('png2mha', '-mfloat', png, mha), (png,), (mha,)) for png, mha in zip(f_p_png, f_p_mha)]
+    [memseg.add(('png2mha', '-mfloat', png, mha), (png,), (mha,)) for png, mha in zip(t_p_png, t_p_mha)]
     if sigma == 0.0:
-        p_f_p_blur = [Process(('cp', png, mha), (ppm,), cwd=temp) for png, mha, ppm in zip(f_p_mha, f_p_blur, p_f_p_mha)]
-        p_t_p_blur = [Process(('cp', png, mha), (ppm,), cwd=temp) for png, mha, ppm in zip(t_p_mha, t_p_blur, p_t_p_mha)]
+        [memseg.add(('cp', png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(f_p_mha, f_p_blur)]
+        [memseg.add(('cp', png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(t_p_mha, t_p_blur)]
     else:
-        p_f_p_blur = [Process(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (p_p_png,), cwd=temp) for png, mha in zip(f_p_png, f_p_blur)]
-        p_t_p_blur = [Process(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (p_p_png,), cwd=temp) for png, mha in zip(t_p_png, t_p_blur)]
+        [memseg.add(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(f_p_png, f_p_blur)]
+        [memseg.add(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(t_p_png, t_p_blur)]
 
 
     ### Training Phase ###
     # 0 - Training texures
-    p_textondict = Process(genTextonDict_cmd(t_d_blur, t_s_clr_mha, textondict), (p_t_s_clr_mha, p_t_d_blur), cwd=temp)
+    memseg.add(genTextonDict_cmd(t_d_blur, t_s_clr_mha, textondict), t_d_blur+t_s_clr_mha, (textondict,))
     # 1 - Training initial segmentation
-    p_t_is       = [Process(('watershed', pb, wl, iseg), (ppb,), cwd=temp)
-                    for pb, iseg, ppb in zip(t_p_blur, t_is, p_t_p_blur)]
+    [memseg.add(('watershed', pb, wl, iseg), (pb,), (iseg,), ('waterlevel',)) for pb, iseg in zip(t_p_blur, t_is)]
     # TODO: add step 1.5
     # 2 - Training merge generation
-    p_t_merge    = [Process(('genMerges', iseg, pb, t, s), (pis,), cwd=temp) # + p_t_p_blur
-                    for iseg, pb, t, s, pis in zip(t_is, t_p_blur, t_tree, t_sal, p_t_is)]
+    [memseg.add(('genMerges', iseg, pb, t, s), (iseg, pb), (t, s)) for iseg, pb, t, s in zip(t_is, t_p_blur, t_tree, t_sal)]
     # 3 - Training boundary feature generation
-    p_t_bfeat    = [Process(('genBoundaryFeatures', iseg, t, s, db, p, textondict, '0', bcf), (p_textondict, ppm, pm), cwd=temp) # + p_t_is, p_t_d_blur
-                    for iseg, t, s, db, p, bcf, ppm, pm in zip(t_is, t_tree, t_sal, t_d_blur, t_p_mha, t_bcf, p_t_p_mha, p_t_merge)]
+    [memseg.add(('genBoundaryFeatures', iseg, t, s, db, p, textondict, '0', bcf), (iseg, t, s, db, p, textondict), (bcf,)) for iseg, t, s, db, p, bcf in zip(t_is, t_tree, t_sal, t_d_blur, t_p_mha, t_bcf)]
     # 4 - Training boundary label generation
-    p_t_blbl     = [Process(('genBoundaryLabels', iseg, t, l, bcl), (p_t_s_clr_mha, pm), cwd=temp) # + p_t_is
-                    for iseg, t, l, bcl, pm in zip(t_is, t_tree, t_s_clr_mha, t_bcl, p_t_merge)]
+    [memseg.add(('genBoundaryLabels', iseg, t, l, bcl), (iseg, t, l), (bcl,)) for iseg, t, l, bcl in zip(t_is, t_tree, t_s_clr_mha, t_bcl)]
     # 5 - Training Data Generation
-    p_bcmodel    = Process(rf_train_cmd(t_bcf, t_bcl, treeNum, mtry, sampSize, bcmodel), p_t_bfeat + p_t_blbl, cwd=temp)
+    memseg.add(rf_train_cmd(t_bcf, t_bcl, treeNum, mtry, sampSize, bcmodel), t_bcf+t_bcl, (bcmodel,), ('number-of-trees','mtry','sample-size'))
 
 
     ### Segmentation Phase ###
     # 1 - Full dataset initial segmentation
-    p_f_is       = [Process(('watershed', pb, wl, iseg), (ppb,), cwd=temp)
-                    for pb, iseg, ppb in zip(f_p_blur, f_is, p_f_p_blur)]
+    [memseg.add(('watershed', pb, wl, iseg), (pb,), (iseg,), ('waterlevel',)) for pb, iseg in zip(f_p_blur, f_is)]
     # TODO: add step 1.5
     # 2 - Full dataset merge generation
-    p_f_merge    = [Process(('genMerges', iseg, pb, t, s), (pis,), cwd=temp) # + p_f_p_blur
-                    for iseg, pb, t, s, pis in zip(f_is, f_p_blur, f_tree, f_sal, p_f_is)]
+    [memseg.add(('genMerges', iseg, pb, t, s), (iseg, pb), (t, s)) for iseg, pb, t, s in zip(f_is, f_p_blur, f_tree, f_sal)]
     # 3 - Full dataset boundary feature generation
-    p_f_bfeat    = [Process(('genBoundaryFeatures', iseg, t, s, db, p, textondict, '0', bcf), (p_textondict, p_f_d_blur, ppm, pm), cwd=temp) # + p_f_is
-                    for iseg, t, s, db, p, bcf, ppm, pm in zip(f_is, f_tree, f_sal, f_d_blur, f_p_mha, f_bcf, p_f_p_mha, p_f_merge)]
+    [memseg.add(('genBoundaryFeatures', iseg, t, s, db, p, textondict, '0', bcf), (iseg, t, s, db, p, textondict), (bcf,)) for iseg, t, s, db, p, bcf in zip(f_is, f_tree, f_sal, f_d_blur, f_p_mha, f_bcf)]
     # 6 - Generate Predictions
-    p_f_bcp      = rf_predict_procs(bcmodel, f_bcf, f_bcp, p_bcmodel, p_f_bfeat, temp)
+    rf_predict_procs(memseg, bcmodel, f_bcf, f_bcp)
     # 7 - Segment
-    p_seg_pts    = [Process(('segmentToContours', iseg, t, bcp, z, sp), (pbcp,), cwd=temp) # + p_f_is, p_f_merge
-                    for iseg, t, bcp, z, sp, pbcp in zip(f_is, f_tree, f_bcp, zs_f, seg_pts, p_f_bcp)]
+    [memseg.add(('segmentToContours', iseg, t, bcp, z, sp), (iseg, t, bcp), (sp,)) for iseg, t, bcp, z, sp in zip(f_is, f_tree, f_bcp, zs_f, seg_pts)]
     
 
     ### Convert output files ###
-    p_seg_pts_all = Process(['combine_points',] + seg_pts + [seg_pts_all,], p_seg_pts, cwd=temp)
+    memseg.add(['combine_points',] + seg_pts + [seg_pts_all,], seg_pts, (seg_pts_all,))
     # TODO: -im and pixel spacing?
-    p_seg_mod = Process(('point2model', '-im', mrc_f_filename, seg_pts_all, mod_output), (p_seg_pts_all,), cwd=temp)
+    memseg.add(('point2model', '-im', mrc_f_filename, seg_pts_all, mod_output), (mrc_f_filename,seg_pts_all), (mod_output,))
 
 
-    p_seg_mod.run(verbose = True)
+    # Run!
+    memseg.run(verbose = True)
