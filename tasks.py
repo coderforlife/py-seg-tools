@@ -41,19 +41,14 @@ class Task:
         if self.__all_after:
             self.__all_after = None
             for b in self.before: a._clear_cached_all_after()
-    def mark_as_done(self, inc_before = True):
+    def mark_as_done(self):
         """
-        Marks a task and by default the tasks before it as done. This means when a task tree runs that includes them
-        they will not be run. Not marking the tasks before as done means that if those tasks are required by some other
-        tasks they may still run.
+        Marks a task and all the tasks before it as done. This means when a task tree runs that includes them they will
+        not be run.
         """
-        # TODO: if self.__semaphore != None: raise ValueError('Cannot mark a task as done when tasks are running')
-        if inc_before: self.__mark_as_done_recursive()
-        else: self.done = True
-    def __mark_as_done_recursive(self):
         self.done = True
         for t in self.before:
-            if not t.done: t.__mark_as_done_recursive()
+            if not t.done: t.mark_as_done()
 
 class TaskUsingProcess(Task):
     def __init__(self, cmd, inputs, outputs, settings, wd):
@@ -152,10 +147,10 @@ class Tasks:
         # TODO: simple checks for acyclic-ness could be added here
         # for example, if after an add the overall_inputs or overall_outputs sets are empty, then we have a cycle
         for o in task.outputs:
-            if self.outputs.has_key(o): raise ValueError('Each file can only be output by one task')
+            if o in self.outputs: raise ValueError('Each file can only be output by one task')
         for o in task.outputs:
             self.outputs[o] = task
-            if self.inputs.has_key(o):
+            if o in self.inputs:
                 task.after.update(self.inputs[o])
                 task._clear_cached_all_after()
                 for t in self.inputs[o]: t.before.add(task)
@@ -163,7 +158,7 @@ class Tasks:
         else:
             for i in task.inputs:
                 self.inputs.setdefault(i, []).append(task)
-                if self.outputs.has_key(i):
+                if i in self.outputs:
                     task.before.add(self.outputs[i])
                     self.outputs[i].after.add(task)
                     self.outputs[i]._clear_cached_all_after()
@@ -171,15 +166,14 @@ class Tasks:
         self.all_tasks[str(task)] = task
         return task
     def find(self, cmd): return self.all_tasks.get(cmd)
-    def overall_inputs(self):  return set(self.inputs.iterkeys())  - set(self.outputs.iterkeys())
-    def overall_outputs(self): return set(self.outputs.iterkeys()) - set(self.inputs.iterkeys())
+    def overall_inputs(self):  return self.inputs.viewkeys() - self.outputs.viewkeys() #set(self.inputs.iterkeys()) - set(self.outputs.iterkeys())
+    def overall_outputs(self): return self.outputs.viewkeys() - self.inputs.viewkeys() #set(self.outputs.iterkeys()) - set(self.inputs.iterkeys())
     def __check_acyclic(self):
         if len(self.outputs) == 0 and len(self.inputs) == 0: return
-        overall_inputs = self.overall_inputs()
-        overall_outputs = self.overall_outputs()
-        if (len(overall_inputs) == 0 and len(self.stand_alone) == 0) or len(overall_outputs) == 0: raise ValueError('Tasks are cyclic')
-        for t in overall_inputs: i.all_after()
-        for t in self.stand_alone: i.all_after()
+        overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
+        if (len(overall_inputs) == 0 and len(self.stand_alone) == 0) or len(self.overall_outputs()) == 0: raise ValueError('Tasks are cyclic')
+        for t in overall_inputs: t.all_after()
+        for t in self.stand_alone: t.all_after()
     
     def __run(self, task):
         try:
@@ -200,7 +194,7 @@ class Tasks:
                     task.done = True # done must be marked in a locked region to avoid race conditions
                     # Update subsequent tasks
                     for t in task.after:
-                        if not t.done and all((b.done for b in t.before)):
+                        if not t.done and all(b.done for b in t.before):
                             heappush(self.__next, (len(t.all_after()), t))
                     self.__last.discard(task)
                     # Log completion
@@ -219,6 +213,7 @@ class Tasks:
 
         from threading import BoundedSemaphore, Condition, Thread 
         from os.path import exists
+        #from itertools import chain
         from heapq import heapify, heappop
         from time import strftime, gmtime
 
@@ -233,23 +228,21 @@ class Tasks:
             self.__conditional = Condition() # for locking access to leaves and error
 
             # Setup log
-            if exists(self.logname):
-                # TODO: self.__log = self.__process_log(verbose)
-                self.__log = open(self.logname, 'w', 0)
-            else:
-                self.__log = open(self.logname, 'w', 0)
+            done_tasks = self.__process_log(verbose) if exists(self.logname) else ()
+            self.__log = open(self.logname, 'w', 0)
             for k,v in self.settings.iteritems(): self.__log.write("*"+k+"="+str(v)+"\n")
             # TODO: log overall inputs and outputs
+            for dc in done_tasks: self.__log.write(dc)
 
             # Calcualte set of first and last tasks
-            overall_inputs = self.overall_inputs()
-            overall_outputs = self.overall_outputs()
+            #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
+            overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
+            overall_outputs = {self.outputs[f] for f in self.overall_outputs()}
             if (len(overall_inputs) == 0 and len(self.stand_alone) == 0) or len(overall_outputs) == 0: raise ValueError('Tasks are cyclic')
-            for t in overall_inputs: i.all_after() # precompute these (while also checking for cyclic-ness)
-            for t in self.stand_alone: i.all_after()
-            self.__last = set((t for t in (self.outputs[f] for f in overall_outputs) if not t.done))
-            first = self.stand_alone.copy()
-            for ts in (self.inputs[f] for f in overall_inputs): first.update(ts)
+            for t in overall_inputs: t.all_after() # precompute these (while also checking for cyclic-ness)
+            for t in self.stand_alone: t.all_after()
+            self.__last = {t for t in overall_outputs if not t.done}
+            first = self.stand_alone | overall_inputs
             changed = True
             while changed:
                 changed = False
@@ -284,3 +277,42 @@ class Tasks:
             if hasattr(self, '__conditional'): del self.__conditional
             if hasattr(self, '__next'):        del self.__next
             self.__semaphore = None
+
+    def __process_log(self, verbose):
+        import re
+        from time import strptime
+        from calendar import timegm
+        from os.path import normpath, join, exists, getmtime
+        
+        with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
+        re_date = re.compile('\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\s')
+        lines = [line for line in lines if len(line) != 0]
+        #comments = [line for line in lines if line[0] == '#']
+        # TODO: this will take the last found setting/command with a given and silently drop the others
+        settings = {s[0].strip():s[1].strip() for s in (line[1:].split('=',1) for line in lines if line[0] == '*')} # setting => value
+        tasks = {line[20:].strip():line[:19] for line in lines if re_date.match(line)} # task string => date/time string
+        #if len(lines) != len(comments) + len(settings) + len(commands): raise ValueError('Invalid file format for tasks log')
+
+        # Check Settings
+        changed_settings = self.settings.viewkeys() - settings.viewkeys() # new settings
+        changed_settings.update(k for k in (self.settings.viewkeys() & settings.viewkeys()) if str(self.settings[k]).strip() != settings[k]) # all previous settings that changed value
+
+        # Check Tasks / Files
+        changed = self.all_tasks.viewkeys() - tasks.viewkeys() # new tasks are not done
+        for n,dt in tasks.items(): # not iteritems() since we may remove elements
+            t = self.find(n)
+            if not t: del tasks[n] # task no longer exists
+            elif not t.settings.isdisjoint(changed_settings): changed.add(n) # settings changed
+            else:
+                datetime = timegm(strptime(dt, Tasks.__time_format))
+                inputs = (normpath(join(t.wd, f)) for f in t.inputs)
+                if any((exists(f) and getmtime(f) >= datetime for f in inputs)) or any(not exists(normpath(join(t.wd, f))) for f in t.outputs):
+                    changed.add(n)
+        for n in changed.copy(): changed.update(str(t) for t in self.find(n).all_after()) # add every task that comes after a changed task
+
+        # Mark as Done
+        done_tasks = tasks.viewkeys() - changed
+        for n in done_tasks:
+            if verbose: print "Skipping %s" % n
+            self.find(n).done = True
+        return ((tasks[n] + ' ' + n) for n in done_tasks)
