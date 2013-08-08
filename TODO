@@ -8,7 +8,6 @@ create_labels:
  * support using the same labels across slices
  * support running connected components code on BW data (scipy.ndimage.label)
  * support negative values in signed types
-Process:
- * figure out why EPD deadlocks
- * test PythonProcess and PythonThread
- * add smart-restart system (logging)
+Tasks:
+ * check if EPD still deadlocks with the overhauled system
+ * test TaskUsingPythonFunction and TaskUsingPythonProcess

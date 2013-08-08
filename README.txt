@@ -80,3 +80,37 @@ file. The input files can be different file types (as long as they are all
 supported by the current reader: SciPy/PIL or ITK). Additionally, you can use
 inputs that have glob-like syntax (e.g. folder/*.png, [0-9][0-9].png, etc).
 
+
+== Python Coding ==
+You can also directly call the above tools from Python code by importing the
+function from the file (e.g. from mrc2png import mrc2png). Use the built-in
+Python help functions for the documentation of each function.
+
+There is also a complete MRC class and various other utility functions in
+images.py. MRC class is currently not really documented.
+
+The utility functions (for more details see built-in Python help):
+	gauss_blur(im, sigma = 1.0) -- Blur an image using a Gaussian blur (requires SciPy)
+	flip_up_down(im)            -- Flips an image from top-bottom as a view (not a copy)
+	create_labels(im)           -- Creates a consecutively numbered IM_UINT image from an image
+	float_image(im, in_scale=None, out_scale=(0.0,1.0)) - Convert an image into a 32-bit floating-point image by scaling the data
+	sp_read(filename)           -- Read an image using SciPy (actually PIL) 
+	sp_save(filename, im)       -- Save an image using SciPy (actually PIL)
+	itk_read(filename)          -- Read an image using ITK
+	itk_save(filename, im)      -- Save an image using ITK
+	is_rgb24(im)                -- True if the data represents an 24-bit RGB image
+	is_image_besides_rgb24(im)  -- True if the data represents an image beside a 24-bit RGB image
+	is_image(im)				-- True if the data represents an image
+
+Additionally, there are dtypes for the different image types:
+	IM_BYTE      -- 8-bit grayscale
+	IM_SBYTE     -- 8-bit signed grayscale
+	IM_SHORT     -- 16-bit signed grayscale (little-endian)
+	IM_SHORT_BE  -- 16-bit signed grayscale (big-endian)
+	IM_FLOAT     -- 32-bit floating-point grayscale
+	IM_USHORT    -- 16-bit grayscale (little-endian)
+	IM_USHORT_BE -- 16-bit grayscale (big-endian)
+	IM_UINT      -- 32-bit grayscale (little-endian)
+	IM_UINT_BE   -- 32-bit grayscale (big-endian)
+	IM_RGB24     -- 24-bit RGB (color is on third axis as bytes, cannot be easily tested)
+	IM_RGB24_STRUCT -- 24-bit RGB (color is with R, G, and B fields as bytes)
