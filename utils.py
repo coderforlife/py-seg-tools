@@ -1,4 +1,4 @@
-def check_reqs(scipy = True, numpy = True, PIL = True, SimpleITK = True):
+def check_reqs(scipy = True, numpy = True, PIL = True, SimpleITK = True, psutil = False):
     def __die(name):
         from sys import stderr, exit
         print >> stderr, "Could not import the required module %s" % name
@@ -16,6 +16,9 @@ def check_reqs(scipy = True, numpy = True, PIL = True, SimpleITK = True):
     if SimpleITK:
         try: import SimpleITK
         except: __die('SimpleITK')
+    if psutil:
+        try: import psutil
+        except: __die('psutil')
 
 
 def make_dir(d):
@@ -28,16 +31,18 @@ def make_dir(d):
     except: return False
 
 
-def clear_dir(d, pattern = '*'):
-    import os, os.path
+def only_keep_num(d, allowed, match_slice = slice(None), pattern='*'):
     from glob import iglob
-    for f in iglob(os.path.join(d, pattern)):
-        try:
-            if os.path.isfile(f): os.unlink(f)
+    from os import unlink
+    from os.path import basename, join, isfile
+    
+    files = ((f, basename(f)[match_slice]) for f in iglob(join(d, pattern)) if isfile(f))
+    for f in (f for f, x in files if x.isdigit() and int(x) in allowed):
+        try: unlink(f)
         except Exception, e: pass
-    for f in iglob(os.path.join(d, '.'+pattern)):
-        try:
-            if os.path.isfile(f): os.unlink(f)
+    files = ((f, basename(f)[match_slice]) for f in iglob(join(d, '.'+pattern)) if isfile(f))
+    for f in (f for f, x in files if x.isdigit() and int(x) in allowed):
+        try: unlink(f)
         except Exception, e: pass
 
 

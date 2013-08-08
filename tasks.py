@@ -7,25 +7,56 @@ The exact ordering of starting/completing tasks cannot be guarnteed, only that t
 the output of other tasks will not start until the outputing tasks are done.
 """
 
-from abc import ABCMeta, abstractmethod
-from multiprocessing import cpu_count
+__all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
 
+from abc import ABCMeta, abstractmethod
+from functools import total_ordering
+#from itertools import chain
+
+from os import getcwd
+from os.path import abspath, exists, getmtime, join, normpath
+
+from heapq import heapify, heappop, heappush
+
+from multiprocessing import cpu_count, Process
+from subprocess import check_call, CalledProcessError
+from threading import Condition, Thread
+from pipes import quote
+
+from calendar import timegm
+from time import gmtime, sleep, strftime, strptime
+import re
+
+from psutil import virtual_memory, swap_memory # not a built-in library
+
+KB = 1024
+MB = 1024*1024
+GB = 1024*1024*1024
+TB = 1024*1024*1024*1024
+
+@total_ordering
 class Task:
     __metaclass__ = ABCMeta
-    def __init__(self, name, inputs, outputs, settings):
+    def __init__(self, name, inputs, outputs, settings, wd = None):
         if len(outputs) == 0: raise ValueError('Each task must output at least one file')
         self.name = name
         self.inputs = frozenset(inputs)
         self.outputs = frozenset(outputs)
         self.settings = frozenset(settings)
+        self.wd = abspath(wd) if wd else None
         self.before = set()
         self.after = set()
         self.__all_after = None
         self.done = False
+        self.cpu_pressure = 1
+        self.mem_pressure = 1*MB
     def __eq__(self, other): return type(self) == type(other) and self.name == self.name
+    def __lt__(self, other): return type(self) <  type(other) or  self.name <  self.name
     def __hash__(self):      return hash(self.name+str(type(self)))
     @abstractmethod
-    def _run(self): pass # starts the task and waits, throws exceptions if something goes wrong
+    def _run(self):
+        """Starts the task and waits, throws exceptions if something goes wrong"""
+        pass
     def __repr__(self): return self.name
     def all_after(self, back_stack = set()):
         """Get all tasks that come after this task while performing a test for cycles"""
@@ -49,77 +80,79 @@ class Task:
         self.done = True
         for t in self.before:
             if not t.done: t.mark_as_done()
+    def pressure(self, cpu=None, mem=None):
+        """
+        Gives the task a certain amount of CPU and/or memory pressure (in bytes). The task will not start unless there
+        is sufficient memory and CPUs available. The default for a new task is 1 CPU and 1 MB of memory.
+
+        Note: The CPU count is actually a count against "max tasks at once", not actual available CPUs. Max tasks at
+        once does default to the total number of CPUs though.
+
+        If a task requires more CPUs then will be allowed, it will only be run when no other tasks are running.
+        If a task requries more memory then can be given, it will never run.
+        """
+        if cpu != None:
+            cpu = int(cpu)
+            if cpu <= 0: raise ValueError('Number of used CPUs must be positive')
+            self.cpu_pressure = cpu
+        if mem != None:
+            mem = int(mem)
+            if mem < 0: raise ValueError('Amount of used memory must be non-negative')
+            self.mem_pressure = mem
 
 class TaskUsingProcess(Task):
     def __init__(self, cmd, inputs, outputs, settings, wd):
-        from pipes import quote
         self.cmd = cmd
-        self.wd = wd
-        Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings)
+        Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
     def _run(self):
-        from subprocess import check_call
         check_call(self.cmd, cwd=self.wd)
 class TaskUsingPythonFunction(Task):
-    def __init__(self, target, args, kwargs, inputs, outputs, settings, wd):
+    def __init__(self, target, args, kwargs, inputs, outputs, settings):
         self.target = target
         self.args = args
         self.kwargs = kwargs
-        self.wd = wd
         kwargs = ""
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
         Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings)
     # We don't actually need to spawn a thread since there is a thread spawned essentially just for _run()
-    def _run(self): self.target(*self.args, **self.kwargs) # TODO: working directory?
+    def _run(self): self.target(*self.args, **self.kwargs)
 class TaskUsingPythonProcess(Task):
     def __init__(self, target, args, kwargs, inputs, outputs, settings, wd):
         self.target = target
         self.args = args
         self.kwargs = kwargs
-        self.wd = wd
         kwargs = ""
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
-        Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings)
+        Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings, wd)
     def _run(self):
-        from  multiprocessing import Process
-        from subprocess import CalledProcessError
-        p = Process(target=self.target, args=self.args, kwargs=self.kwargs)
+        if self.wd:
+            def _chdir_first():
+                from os import chdir
+                chdir(self.wd)
+                self.target(*self.args, **self.kwargs)
+            p = Process(_chdir_first)
+        else:
+            p = Process(target=self.target, args=self.args, kwargs=self.kwargs)
         p.daemon = True
-        # TODO: working directory?
         p.start()
         p.join()
         if p.exitcode: raise CalledProcessError(p.exitcode, str(self))
 
 class Tasks:
-    __MaxAtOnce = cpu_count() # static
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
 
-    @staticmethod
-    def set_max_at_once(x):
-        """
-        Sets the maximum number of tasks that can be run simultaneously when run() is called.
-        """
-        Tasks.__MaxAtOnce = x
-    
-    @staticmethod
-    def get_max_at_once():
-        """
-        Gets the maximum number of tasks that can be run simultaneously. Defaults to the number of processors.
-        """
-        return Tasks.__MaxAtOnce
-
-    def __init__(self, log, settings={}, workingdir=None):
-        from os import getcwd
-        from os.path import join, normpath
-        self.workingdir = workingdir if workingdir else getcwd()
+    def __init__(self, log, settings={}, max_tasks_at_once = None, workingdir=None):
+        self.workingdir = abspath(workingdir) if workingdir else getcwd()
+        self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
         self.logname = normpath(join(self.workingdir, log))
         self.outputs     = {} # key is a filename, value is a task that outputs that file
         self.inputs      = {} # key is a filename, value is a list of tasks that need that file as input
         self.stand_alone = set() # list of tasks that have no input files
         self.all_tasks   = {} # all tasks, indexed by their string representation
-        self.__semaphore = None
+        self.__conditional = None
 
     def add(self, cmd, inputs, outputs, settings=(), wd=None):
         """
@@ -129,23 +162,30 @@ class Tasks:
         The inputs, outputs, and settings are used to determine dependencies between individual tasks and if individual tasks can be skipped or not
         """
         return self._add(TaskUsingProcess(cmd, inputs, outputs, settings, wd if wd else self.workingdir))
-    def add_func(self, target, args, kwargs, inputs, outputs, settings=(), wd=None, seperate_process = False):
+    def add_func(self, target, args, kwargs, inputs, outputs, settings=(), wd=None, seperate_process = True):
         """
         Adds a new task that is a Python function call.
         The target needs to be a callable object (function).
         The args and kwargs are the list of arguments and dictionary of keyword arguments.
-        If seperate_process is True, 
+        If seperate_process is False then the task is run in the current process, which reduces some overhead but does experience issues with working-directory and the global iterpreter lock.
         The task does not run until sometime after run() is called.
         The inputs, outputs, and settings are used to determine dependencies between individual tasks and if individual tasks can be skipped or not
         """
-        _Task = TaskUsingPythonProcess if seperate_process else TaskUsingPythonFunction
-        return self._add(_Task(target, args, kwargs, inputs, outputs, settings, wd if wd else self.workingdir))
+        if seperate_process:
+            t = TaskUsingPythonProcess(target, args, kwargs, inputs, outputs, settings, wd if wd else self.workingdir)
+        elif wd:
+            raise ValueError('Working-directory cannot be changed except for seperate processes')
+        else:
+            t = TaskUsingPythonFunction(target, args, kwargs, inputs, outputs, settings)
+        return self._add(t)
     def _add(self, task):
         # Processes the input and output information from the task
         # Updates all before and after lists as well
         if not task.inputs.isdisjoint(task.outputs): raise ValueError('A task cannot output a file that it needs for input')
-        # TODO: simple checks for acyclic-ness could be added here
-        # for example, if after an add the overall_inputs or overall_outputs sets are empty, then we have a cycle
+        is_stand_alone = len(task.inputs) == 0
+        new_inputs  = task.inputs  | (self.overall_inputs() - task.outputs)
+        new_outputs = task.outputs | (self.overall_outputs() - task.inputs)
+        if not new_inputs.isdisjoint(new_outputs): raise ValueError('Task addition will cause a cycle in dependencies')
         for o in task.outputs:
             if o in self.outputs: raise ValueError('Each file can only be output by one task')
         for o in task.outputs:
@@ -154,7 +194,7 @@ class Tasks:
                 task.after.update(self.inputs[o])
                 task._clear_cached_all_after()
                 for t in self.inputs[o]: t.before.add(task)
-        if len(task.inputs) == 0: self.stand_alone.add(task)
+        if is_stand_alone: self.stand_alone.add(task)
         else:
             for i in task.inputs:
                 self.inputs.setdefault(i, []).append(task)
@@ -162,8 +202,8 @@ class Tasks:
                     task.before.add(self.outputs[i])
                     self.outputs[i].after.add(task)
                     self.outputs[i]._clear_cached_all_after()
-        #if (len(self.overall_inputs()) == 0 and len(self.stand_alone) == 0) or len(self.overall_outputs()) == 0: raise ValueError('Tasks are cyclic')
         self.all_tasks[str(task)] = task
+        #if (len(self.overall_inputs()) == 0 and len(self.stand_alone) == 0) or len(self.overall_outputs()) == 0: raise ValueError('Tasks are now cyclic')
         return task
     def find(self, cmd): return self.all_tasks.get(cmd)
     def overall_inputs(self):  return self.inputs.viewkeys() - self.outputs.viewkeys() #set(self.inputs.iterkeys()) - set(self.outputs.iterkeys())
@@ -176,34 +216,55 @@ class Tasks:
         for t in self.stand_alone: t.all_after()
     
     def __run(self, task):
+        # Run the task, wait for it to finish
+        err = None
         try:
-            from heapq import heappush
-            from time import strftime, gmtime
-            
-            # Run the task, wait for it to finish
-            err = None
-            try:
-                # TODO: EDP on Linux deadlocks at random times...
-                task._run()
-            except BaseException as e:
-                err = e
+            task._run() # TODO: EDP on Linux deadlocks at random times...
+        except BaseException as e:
+            err = e
 
-            with self.__conditional:
-                if err: self.__error = err # Handle error
-                else:
-                    task.done = True # done must be marked in a locked region to avoid race conditions
-                    # Update subsequent tasks
-                    for t in task.after:
-                        if not t.done and all(b.done for b in t.before):
-                            heappush(self.__next, (len(t.all_after()), t))
-                    self.__last.discard(task)
-                    # Log completion
-                    self.__log.write(strftime(Tasks.__time_format, gmtime())+" "+str(task)+" \n")
-                self.__conditional.notify()
-        finally:
-            # Release the task-count lock
-            self.__semaphore.release()
-        
+        with self.__conditional:
+            if err: self.__error = err # Handle error
+            else:
+                task.done = True # done must be marked in a locked region to avoid race conditions
+                # Update subsequent tasks
+                for t in task.after:
+                    if not t.done and all(b.done for b in t.before):
+                        heappush(self.__next, (len(self.all_tasks) - len(t.all_after()), t))
+                self.__last.discard(task)
+                # Log completion
+                self.__log.write(strftime(Tasks.__time_format, gmtime())+" "+str(task)+" \n")
+            self.__tasks_available += max(self.max_tasks_at_once, task.cpu_pressure)
+            self.__conditional.notify()
+
+    def __next_task(self):
+        # Must be called while self.__conditional is acquired
+        if len(self.__next) == 0 or self.__tasks_available == 0: return None
+
+        avail_cpu, avail_mem = self.__tasks_available, virtual_memory().available
+        for i in xrange(2):
+            # First do a fast to see if the very next task is doable
+            # This should be very fast and will commonly be where the process ends
+            priority, task = self.__next[0]
+            needed_cpu = max(self.max_tasks_at_once, task.cpu_pressure)
+            if needed_cpu <= avail_cpu and task.mem_pressure <= avail_mem:
+                heappop(self.__next)
+                self.__tasks_available -= needed_cpu
+                return task
+
+            # Second do a slow check of all upcoming tasks
+            # This can be quite slow if the number of upcoming processes is long
+            try:
+                priority, task, i = min((priority, task, i) for i, priority, task in enumerate(self.__next) if max(self.max_tasks_at_once, task.cpu_pressure) <= avail_cpu and task.mem_pressure <= avail_mem)
+                self.__next[i] = self.__next.pop() # O(1)
+                heapify(self.__next) # O(n) [could be made O(log(N)) with undocumented _siftup/_siftdown]
+                self.__tasks_available -= max(self.max_tasks_at_once, task.cpu_pressure)
+                return task
+            except: pass
+
+            # Now try increasing the amount of available memory by including some of the swap space
+            avail_mem += 0.5 * swap_memory().free
+    
     def run(self, verbose=False):
         """
         Runs all the tasks in a smart order with many at once. Will not return until all tasks are done.
@@ -211,21 +272,16 @@ class Tasks:
         Setting verbose to True will cause the time and the command to print whenever a new command is about to start.
         """
 
-        from threading import BoundedSemaphore, Condition, Thread 
-        from os.path import exists
-        #from itertools import chain
-        from heapq import heapify, heappop
-        from time import strftime, gmtime
-
         # Checks
-        if self.__semaphore != None: raise ValueError('Tasks already running')
-        if len(self.outputs) == 0 and len(self.inputs) == 0: return
-        self.__error = None
+        if self.__conditional != None: raise ValueError('Tasks already running')
+        if len(self.outputs) == 0 and len(self.inputs) == 0 and len(self.stand_alone) == 0: return
+        if len(self.outputs) == 0 or (len(self.inputs) == 0 and len(self.stand_alone) == 0): raise ValueError('Invalid set of tasks (likely cyclic)')
 
         try:
-            # Create locks
-            self.__semaphore = BoundedSemaphore(Tasks.__MaxAtOnce) # for limiting number of tasks
-            self.__conditional = Condition() # for locking access to leaves and error
+            # Create basic variables and lock
+            self.__error = None
+            self.__tasks_available = self.max_tasks_at_once
+            self.__conditional = Condition() # for locking access to Task.done, tasks_available, next, last, log, and error
 
             # Setup log
             done_tasks = self.__process_log(verbose) if exists(self.logname) else ()
@@ -248,47 +304,43 @@ class Tasks:
                 changed = False
                 for t in first.copy():
                     if t.done: first.remove(t); first.update(t.after); changed = True
-            self.__next = [(len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
+            self.__next = [(len(self.all_tasks) - len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
             heapify(self.__next)
 
             # Keep running tasks in the tree until we have completed the root (which is self)
             while len(self.__last) != 0:
                 # Get next task
                 with self.__conditional:
-                    while len(self.__next) == 0 and len(self.__last) > 0 and not self.__error:
+                    while len(self.__last) > 0 and not self.__error:
+                        task = self.__next_task()
+                        if task != None: break
                         self.__conditional.wait(60) # wait until we have some available [the timeout is important because otherwise CTRL+C does not allow aborting]
                     if len(self.__last) == 0: break
                     if self.__error: raise self.__error
-                    task = heappop(self.__next)[1]
 
                 # Run it
-                self.__semaphore.acquire() # make sure not too many things are already running
                 t = Thread(target=self.__run, args=(task,))
                 t.daemon = True
                 if verbose: print strftime(Tasks.__time_format) + " Running " + str(task)
                 t.start()
+                sleep(0) # make sure it starts 
 
         finally:
             # Cleanup
             if hasattr(self, '__log'):
                 self.__log.close()
                 del self.__log
+            if hasattr(self, '__next'): del self.__next
+            self.__conditional = None
             del self.__error
-            if hasattr(self, '__conditional'): del self.__conditional
-            if hasattr(self, '__next'):        del self.__next
-            self.__semaphore = None
+            del self.__tasks_available
 
     def __process_log(self, verbose):
-        import re
-        from time import strptime
-        from calendar import timegm
-        from os.path import normpath, join, exists, getmtime
-        
         with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
         re_date = re.compile('\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\s')
         lines = [line for line in lines if len(line) != 0]
         #comments = [line for line in lines if line[0] == '#']
-        # TODO: this will take the last found setting/command with a given and silently drop the others
+        # Note: this will take the last found setting/command with a given and silently drop the others
         settings = {s[0].strip():s[1].strip() for s in (line[1:].split('=',1) for line in lines if line[0] == '*')} # setting => value
         tasks = {line[20:].strip():line[:19] for line in lines if re_date.match(line)} # task string => date/time string
         #if len(lines) != len(comments) + len(settings) + len(commands): raise ValueError('Invalid file format for tasks log')

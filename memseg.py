@@ -9,23 +9,24 @@ import os.path
 from sys import stderr, argv, exit
 
 from utils import *
-check_reqs()
+check_reqs(psutil = True)
 
 from images import *
-from tasks import Tasks
+from tasks import *
 
 # TODO:
 #  Add final step
 #  Add step #1.5
-#  Make smart-restart
 #  Allow training mask to be supplied instead of training model
 #  Add extra arguments for imodmop conversion
 #  Do training subvolumes for speed (instead of assuming training is independent of full)
 
 from sys import stdout
 if hasattr(stdout, 'fileno'):
-    stdout = os.fdopen(stdout.fileno(), 'w', 0)
-    stderr = os.fdopen(stderr.fileno(), 'w', 0)
+    try:
+        stdout = os.fdopen(stdout.fileno(), 'w', 0)
+        stderr = os.fdopen(stderr.fileno(), 'w', 0)
+    except: pass
 
 
 def imodmop_cmd(args, model, in_mrc, out_mrc, contract = 0):
@@ -73,7 +74,7 @@ def rf_predict_procs(proc, model, features, predictions):
     if len(features) == 0 or len(features) != len(predictions): raise ValueError()
     base = ['rf_predict', model, '1']
     cnt = len(features)
-    max = int(Tasks.get_max_at_once())
+    max = proc.max_tasks_at_once
     if cnt < max:
         ranges = ([x] for x in xrange(cnt))
     else:
@@ -206,7 +207,7 @@ if __name__ == "__main__":
         
     # Check the required arguments and set defaults for optional args
     if wl       == None: help_msg(2, "water-lvl is a required argument")
-    if jobs     != None: Tasks.set_max_at_once(jobs)
+    #if jobs     != None: ... # dealt with later
     if contract == None: contract = 0
     if sigma    == None: sigma = 1.0
     if treeNum  == None: treeNum = 255
@@ -222,8 +223,12 @@ if __name__ == "__main__":
     mrc_f_filename = os.path.relpath(mrc_f_filename, temp)
     mod_output = os.path.relpath(mod_output, temp)
     
-
+    # Get properties from the MRCs then close them
     # TODO: support subvolume for speed
+    pxls_t  = mrc_t.section_size
+    bytes_t = mrc_t.section_full_data_size
+    pxls_f  = mrc_f.section_size
+    bytes_f = mrc_f.section_full_data_size
     zs_t = range(len(mrc_t))
     zs_f = range(len(mrc_f))
     mrc_t.close()
@@ -239,91 +244,97 @@ if __name__ == "__main__":
     ## All of the file names that will be used, relative to temporary directory
     f_d_png_folder = 'f_d_png'
     t_d_png_folder = 't_d_png'
-    f_d_png    = [('f_d_png/%03d.png'   % i) for i in zs_f] # full dataset     (PNG)
-    t_d_png    = [('t_d_png/%03d.png'   % i) for i in zs_t] # training dataset (PNG)
+    f_d_png    = [('f_d_png/%04d.png'   % i) for i in zs_f] # full dataset     (PNG)
+    t_d_png    = [('t_d_png/%04d.png'   % i) for i in zs_t] # training dataset (PNG)
     f_d_blur_folder = 'f_d_blur'
     t_d_blur_folder = 't_d_blur'
-    f_d_blur   = [('f_d_blur/%03d.mha'  % i) for i in zs_f] # full dataset     (MHA-blurred)
-    t_d_blur   = [('t_d_blur/%03d.mha'  % i) for i in zs_t] # training dataset (MHA-blurred)
+    f_d_blur   = [('f_d_blur/%04d.mha'  % i) for i in zs_f] # full dataset     (MHA-blurred)
+    t_d_blur   = [('t_d_blur/%04d.mha'  % i) for i in zs_t] # training dataset (MHA-blurred)
 
     t_s_bw     = 't_s_bw.mrc'  # training labels (black and white)
     t_s_clr    = 't_s_clr.mrc' # training labels (colored)
     t_s_bw_png_folder = 't_s_bw'
     t_s_clr_mha_folder = 't_s_clr'
-    t_s_bw_png = [('t_s_bw/%03d.png'    % i) for i in zs_t] # training labels  (PNG - black and white)
-    t_s_clr_mha= [('t_s_clr/%03d.mha'   % i) for i in zs_t] # training labels  (MHA - colored)
+    t_s_bw_png = [('t_s_bw/%04d.png'    % i) for i in zs_t] # training labels  (PNG - black and white)
+    t_s_clr_mha= [('t_s_clr/%04d.mha'   % i) for i in zs_t] # training labels  (MHA - colored)
 
     f_p_png_folder = 'f_p_png'
-    f_p_png    = [('f_p_png/%03d.png'   % i) for i in zs_f] # full probabilty map (PNG)
-    f_p_mha    = [('f_p_mha/%03d.mha'   % i) for i in zs_f] # full probabilty map (MHA)
-    f_p_blur   = [('f_p_blur/%03d.mha'  % i) for i in zs_f] # full probabilty map (MHA-blurred)
+    f_p_png    = [('f_p_png/%04d.png'   % i) for i in zs_f] # full probabilty map (PNG)
+    f_p_mha    = [('f_p_mha/%04d.mha'   % i) for i in zs_f] # full probabilty map (MHA)
+    f_p_blur   = [('f_p_blur/%04d.mha'  % i) for i in zs_f] # full probabilty map (MHA-blurred)
     t_p_png_folder = 't_p_png'
-    t_p_png    = [('t_p_png/%03d_cv2_float.png' % i) for i in zs_t] # TODO: full probabilty map (PNG)
-    t_p_mha    = [('t_p_mha/%03d.mha'   % i) for i in zs_t] # training probabilty map (MHA)
-    t_p_blur   = [('t_p_blur/%03d.mha'  % i) for i in zs_t] # training probabilty map (MHA-blurred)
+    t_p_png    = [('t_p_png/%04d_cv2_float.png' % i) for i in zs_t] # TODO: full probabilty map (PNG)
+    t_p_mha    = [('t_p_mha/%04d.mha'   % i) for i in zs_t] # training probabilty map (MHA)
+    t_p_blur   = [('t_p_blur/%04d.mha'  % i) for i in zs_t] # training probabilty map (MHA-blurred)
 
     textondict = 'textondict.ssv' # Texture data
 
-    t_is       = [('t_is/%03d.mha'      % i) for i in zs_t] # training initial segmentation
-    t_tree     = [('t_tree/%03d.mha'    % i) for i in zs_t] # training segmentation tree
-    t_sal      = [('t_sal/%03d.mha'     % i) for i in zs_t] # training segmentation saliency
-    t_bcf      = [('t_bcf/%03d.ssv'     % i) for i in zs_t] # training segmentation features
-    t_bcl      = [('t_bcl/%03d.ssv'     % i) for i in zs_t] # training segmentation labels
+    t_is       = [('t_is/%04d.mha'      % i) for i in zs_t] # training initial segmentation
+    t_tree     = [('t_tree/%04d.mha'    % i) for i in zs_t] # training segmentation tree
+    t_sal      = [('t_sal/%04d.mha'     % i) for i in zs_t] # training segmentation saliency
+    t_bcf      = [('t_bcf/%04d.ssv'     % i) for i in zs_t] # training segmentation features
+    t_bcl      = [('t_bcl/%04d.ssv'     % i) for i in zs_t] # training segmentation labels
 
     bcmodel = 'bcmodel' # Training data
 
-    f_is       = [('f_is/%03d.mha'      % i) for i in zs_f] # full initial segmentation
-    f_tree     = [('f_tree/%03d.mha'    % i) for i in zs_f] # full segmentation tree
-    f_sal      = [('f_sal/%03d.mha'     % i) for i in zs_f] # full segmentation saliency
-    f_bcf      = [('f_bcf/%03d.ssv'     % i) for i in zs_f] # full segmentation features
-    f_bcp      = [('f_bcp/%03d.ssv'     % i) for i in zs_f] # full segmentation predictions
+    f_is       = [('f_is/%04d.mha'      % i) for i in zs_f] # full initial segmentation
+    f_tree     = [('f_tree/%04d.mha'    % i) for i in zs_f] # full segmentation tree
+    f_sal      = [('f_sal/%04d.mha'     % i) for i in zs_f] # full segmentation saliency
+    f_bcf      = [('f_bcf/%04d.ssv'     % i) for i in zs_f] # full segmentation features
+    f_bcp      = [('f_bcp/%04d.ssv'     % i) for i in zs_f] # full segmentation predictions
 
-    seg_pts    = [('seg_pts/%03d.pts'   % i) for i in zs_f] # the final segementation points for each section
+    seg_pts    = [('seg_pts/%04d.pts'   % i) for i in zs_f] # the final segementation points for each section
     seg_pts_folder = 'seg_pts'
     seg_pts_all = 'segmentation.pts' # the final segementation points for all sections
 
 
-    ### Clean out temporary directories ###
-    # TODO: support this and smart-restart
-    #clear_dir(f_d_png_folder, "*.png")
-    #clear_dir(t_s_bw_png_folder, ".png")
-    #clear_dir(t_d_png_folder, "*.png")
-    #clear_dir(f_p_png_folder, "*.png")
-    #clear_dir(t_p_png_folder) # temp directory has lots of stuff in it
+    ### Clean out some files from temporary directories that may interfere ###
+    # This is needed for Mojtaba's program which simply takes folders and assumes it should process everything there
+    only_keep_num(os.path.join(temp, f_d_png_folder),    zs_f, slice(-4), '*.png')
+    only_keep_num(os.path.join(temp, t_s_bw_png_folder), zs_t, slice(-4), '*.png')
+    only_keep_num(os.path.join(temp, t_d_png_folder),    zs_t, slice(-4), '*.png')
+    only_keep_num(os.path.join(temp, f_p_png_folder),    zs_f, slice(-4), '*.png')
+    only_keep_num(os.path.join(temp, t_p_png_folder),    zs_f, slice(-14), '*_cv2_float.png')
+    only_keep_num(os.path.join(temp, t_p_png_folder),    zs_f, slice(-17), '*_train_round[12].txt')
+    only_keep_num(os.path.join(temp, t_p_png_folder, 'test'), zs_f, slice(-14), '*_cv[12]_float.png')
 
+
+    ### Create the task ###
     memseg = Tasks('memseg.log',
                    {'waterlevel':wl,'contract':contract,'sigma':sigma,'number-of-trees':treeNum,'mtry':mtry,'sample-size':sampSize},
-                   workingdir = temp)
+                   max_tasks_at_once = jobs, workingdir = temp)
+    jobs = memseg.max_tasks_at_once # if jobs was None, now it is cpu_count(), otherwise unchanged
 
     ### Convert input files ###
-    memseg.add(('mrc2png', mrc_f_filename, f_d_png_folder), (mrc_f_filename,), f_d_png)
-    memseg.add(('mrc2png', mrc_t_filename, t_d_png_folder), (mrc_t_filename,), t_d_png)
+    memseg.add(('mrc2png', mrc_f_filename, f_d_png_folder), (mrc_f_filename,), f_d_png).pressure(mem = 20*MB + 2*bytes_f)
+    memseg.add(('mrc2png', mrc_t_filename, t_d_png_folder), (mrc_t_filename,), t_d_png).pressure(mem = 20*MB + 2*bytes_t)
 
-    memseg.add(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), (mrc_f_filename,), f_d_blur, ('sigma',))
-    memseg.add(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), (mrc_t_filename,), t_d_blur, ('sigma',))
+    memseg.add(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), (mrc_f_filename,), f_d_blur, ('sigma',)).pressure(mem = 20*MB + bytes_f + 4*pxls_f)
+    memseg.add(('mrc2mha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), (mrc_t_filename,), t_d_blur, ('sigma',)).pressure(mem = 20*MB + bytes_t + 4*pxls_t)
 
-    memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), (t_s_bw, ), ('contract',)) # TODO: support extra args
-    memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), (t_s_clr,), ('contract',)) # TODO: support extra args
+    memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), (t_s_bw, ), ('contract',)).pressure(mem = 20*MB + bytes_t + 1*pxls_t) # TODO: support extra args
+    memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), (t_s_clr,), ('contract',)).pressure(mem = 20*MB + bytes_t + 3*pxls_t) # TODO: support extra args
 
-    memseg.add(('mrc2png',            t_s_bw,  t_s_bw_png_folder ), (t_s_bw, ), t_s_bw_png )
-    memseg.add(('mrc2mha', '-mlabel', t_s_clr, t_s_clr_mha_folder), (t_s_clr,), t_s_clr_mha)
+    memseg.add(('mrc2png',            t_s_bw,  t_s_bw_png_folder ), (t_s_bw, ), t_s_bw_png ).pressure(mem = 20*MB + 2*pxls_t)
+    memseg.add(('mrc2mha', '-mlabel', t_s_clr, t_s_clr_mha_folder), (t_s_clr,), t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
     memseg.add(('moj-seg', t_d_png_folder, t_s_bw_png_folder, f_d_png_folder, f_p_png_folder, t_p_png_folder), t_d_png+t_s_bw_png+f_d_png, f_p_png+t_p_png)
-    [memseg.add(('png2mha', '-mfloat', png, mha), (png,), (mha,)) for png, mha in zip(f_p_png, f_p_mha)]
-    [memseg.add(('png2mha', '-mfloat', png, mha), (png,), (mha,)) for png, mha in zip(t_p_png, t_p_mha)]
+    [memseg.add(('png2mha', '-mfloat', png, mha), (png,), (mha,)).pressure(mem = 20*MB + 6*pxls_f) for png, mha in zip(f_p_png, f_p_mha)]
+    [memseg.add(('png2mha', '-mfloat', png, mha), (png,), (mha,)).pressure(mem = 20*MB + 6*pxls_t) for png, mha in zip(t_p_png, t_p_mha)]
     if sigma == 0.0:
-        [memseg.add(('cp', png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(f_p_mha, f_p_blur)]
-        [memseg.add(('cp', png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(t_p_mha, t_p_blur)]
+        # TODO: does this actually work? I probably should just a Python function to copy all at once instead of seperate processes
+        [memseg.add(('cp', png, mha), (png,), (mha,), ('sigma',)).pressure(mem = 20*MB) for png, mha in zip(f_p_mha, f_p_blur)]
+        [memseg.add(('cp', png, mha), (png,), (mha,), ('sigma',)).pressure(mem = 20*MB) for png, mha in zip(t_p_mha, t_p_blur)]
     else:
-        [memseg.add(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(f_p_png, f_p_blur)]
-        [memseg.add(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (png,), (mha,), ('sigma',)) for png, mha in zip(t_p_png, t_p_blur)]
+        [memseg.add(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (png,), (mha,), ('sigma',)).pressure(mem = 20*MB + 6*pxls_f) for png, mha in zip(f_p_png, f_p_blur)]
+        [memseg.add(('png2mha', '-mfloat', '-s'+str(sigma), png, mha), (png,), (mha,), ('sigma',)).pressure(mem = 20*MB + 6*pxls_t) for png, mha in zip(t_p_png, t_p_blur)]
 
 
     ### Training Phase ###
     # 0 - Training texures
-    memseg.add(genTextonDict_cmd(t_d_blur, t_s_clr_mha, textondict), t_d_blur+t_s_clr_mha, (textondict,))
+    memseg.add(genTextonDict_cmd(t_d_blur, t_s_clr_mha, textondict), t_d_blur+t_s_clr_mha, (textondict,)).pressure(cpu=jobs*3/4)
     # 1 - Training initial segmentation
     [memseg.add(('watershed', pb, wl, iseg), (pb,), (iseg,), ('waterlevel',)) for pb, iseg in zip(t_p_blur, t_is)]
     # TODO: add step 1.5
