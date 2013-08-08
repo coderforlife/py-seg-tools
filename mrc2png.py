@@ -8,7 +8,7 @@ Converts an MRC file to a PNG stack. Runs either as a command line program or as
 an importable function.
 """
 
-def mrc2png(mrc, png_dir, indxs = None, basename = "%03d.png", flip = False, sigma = 0.0):
+def mrc2png(mrc, png_dir, indxs = None, basename = "%04d.png", flip = False, sigma = 0.0):
     """
     Converts an MRC file to a PNG stack
 
@@ -18,7 +18,7 @@ def mrc2png(mrc, png_dir, indxs = None, basename = "%03d.png", flip = False, sig
     
     Optional Arguments:
     indxs    -- the indices of slices to save, default is to use all slices
-    basename -- the template name to use for PNGs, needs to have a %d to be replaced by slice number, default is "%03d.png"
+    basename -- the template name to use for PNGs, needs to have a %d to be replaced by slice number, default is "%04d.png"
     flip     -- if True then each image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
@@ -55,7 +55,7 @@ def help_msg(err = 0, msg = None):
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%03d.png'")
+    print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%04d.png'")
     print tw.fill("  -x #-#          The x coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
@@ -137,7 +137,7 @@ if __name__ == "__main__":
 
     # Check other arguments, getting values for optional args, etc.
     if sigma    == None: sigma = 0.0
-    if basename == None: basename = "%03d.png"
+    if basename == None: basename = "%04d.png"
     if x == None: x = (0, mrc.nx - 1)
     elif x[0] < 0 or x[1] < x[0] or x[1] < mrc.nx: help_msg(2, "Invalid x argument supplied")
     if y == None: y = (0, mrc.ny - 1)

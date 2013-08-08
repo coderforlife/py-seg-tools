@@ -8,7 +8,7 @@ Converts an MRC file to an MHA stack. Runs either as a command line program or
 as an importable function.
 """
 
-def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, flip = False, sigma = 0.0):
+def mrc2mha(mrc, mha_dir, indxs = None, basename = "%04d.mha", mode = None, flip = False, sigma = 0.0):
     """
     Converts an MRC file to an MHA stack
 
@@ -18,7 +18,7 @@ def mrc2mha(mrc, mha_dir, indxs = None, basename = "%03d.mha", mode = None, flip
     
     Optional Arguments:
     indxs    -- the indices of slices to save, default is to use all slices
-    basename -- the template name to use for MHAs, needs to have a %d to be replaced by slice number, default is "%03d.mha"
+    basename -- the template name to use for MHAs, needs to have a %d to be replaced by slice number, default is "%04d.mha"
     mode     -- output mode, one of:
                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
                     'label' to output a consecutively numbered image for label data
@@ -68,7 +68,7 @@ def help_msg(err = 0, msg = None):
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%03d.mha'")
+    print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%04d.mha'")
     print tw.fill("  -x #-#          The x coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
@@ -157,7 +157,7 @@ if __name__ == "__main__":
 
     # Set defaults for optional args
     if sigma    == None: sigma = 0.0
-    if basename == None: basename = "%03d.mha"
+    if basename == None: basename = "%04d.mha"
     if x == None: x = (0, mrc.nx - 1)
     elif not (x[0] <= x[1] < mrc.nx): help_msg(2, "Invalid x argument supplied")
     if y == None: y = (0, mrc.ny - 1)
