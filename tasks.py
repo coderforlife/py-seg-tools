@@ -13,12 +13,12 @@ from abc import ABCMeta, abstractmethod
 from functools import total_ordering
 #from itertools import chain
 
-from os import getcwd
+from os import getcwd, getpid
 from os.path import abspath, exists, getmtime, join, normpath
 
 from heapq import heapify, heappop, heappush
 
-from multiprocessing import cpu_count, Process
+from multiprocessing import cpu_count, Process as PyProcess
 from subprocess import check_call, CalledProcessError
 from threading import Condition, Thread
 from pipes import quote
@@ -27,7 +27,9 @@ from calendar import timegm
 from time import gmtime, sleep, strftime, strptime
 import re
 
-from psutil import virtual_memory, swap_memory # not a built-in library
+from psutil import Process, virtual_memory # not a built-in library
+
+this_proc = Process(getpid())
 
 KB = 1024
 MB = 1024*1024
@@ -132,9 +134,9 @@ class TaskUsingPythonProcess(Task):
                 from os import chdir
                 chdir(self.wd)
                 self.target(*self.args, **self.kwargs)
-            p = Process(_chdir_first)
+            p = PyProcess(_chdir_first)
         else:
-            p = Process(target=self.target, args=self.args, kwargs=self.kwargs)
+            p = PyProcess(target=self.target, args=self.args, kwargs=self.kwargs)
         p.daemon = True
         p.start()
         p.join()
@@ -143,7 +145,7 @@ class TaskUsingPythonProcess(Task):
 class Tasks:
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
 
-    def __init__(self, log, settings={}, max_tasks_at_once = None, workingdir=None):
+    def __init__(self, log, settings={}, max_tasks_at_once=None, workingdir=None):
         self.workingdir = abspath(workingdir) if workingdir else getcwd()
         self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
@@ -234,36 +236,41 @@ class Tasks:
                 self.__last.discard(task)
                 # Log completion
                 self.__log.write(strftime(Tasks.__time_format, gmtime())+" "+str(task)+" \n")
-            self.__tasks_available += max(self.max_tasks_at_once, task.cpu_pressure)
+            self.__cpu_pressure -= min(self.max_tasks_at_once, task.cpu_pressure)
+            self.__mem_pressure -= task.mem_pressure
             self.__conditional.notify()
+
+    @staticmethod
+    def __get_mem_used():
+        """Gets the memory used by this process and all its children"""
+        return sum((p.get_memory_info()[0] for p in this_proc.get_children(True)), this_proc.get_memory_info()[0])
 
     def __next_task(self):
         # Must be called while self.__conditional is acquired
-        if len(self.__next) == 0 or self.__tasks_available == 0: return None
+        avail_cpu = self.max_tasks_at_once - self.__cpu_pressure
+        if len(self.__next) == 0 or avail_cpu == 0: return None
+        avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used(), 0)
 
-        avail_cpu, avail_mem = self.__tasks_available, virtual_memory().available
-        for i in xrange(2):
-            # First do a fast to see if the very next task is doable
-            # This should be very fast and will commonly be where the process ends
-            priority, task = self.__next[0]
-            needed_cpu = max(self.max_tasks_at_once, task.cpu_pressure)
-            if needed_cpu <= avail_cpu and task.mem_pressure <= avail_mem:
-                heappop(self.__next)
-                self.__tasks_available -= needed_cpu
-                return task
+        # First do a fast to see if the very next task is doable
+        # This should be very fast and will commonly be where the process ends
+        priority, task = self.__next[0]
+        needed_cpu = min(self.max_tasks_at_once, task.cpu_pressure)
+        if needed_cpu <= avail_cpu and task.mem_pressure <= avail_mem:
+            heappop(self.__next)
+            self.__cpu_pressure += needed_cpu
+            self.__mem_pressure += task.mem_pressure
+            return task
 
-            # Second do a slow check of all upcoming tasks
-            # This can be quite slow if the number of upcoming processes is long
-            try:
-                priority, task, i = min((priority, task, i) for i, priority, task in enumerate(self.__next) if max(self.max_tasks_at_once, task.cpu_pressure) <= avail_cpu and task.mem_pressure <= avail_mem)
-                self.__next[i] = self.__next.pop() # O(1)
-                heapify(self.__next) # O(n) [could be made O(log(N)) with undocumented _siftup/_siftdown]
-                self.__tasks_available -= max(self.max_tasks_at_once, task.cpu_pressure)
-                return task
-            except: pass
-
-            # Now try increasing the amount of available memory by including some of the swap space
-            avail_mem += 0.5 * swap_memory().free
+        # Second do a slow check of all upcoming tasks
+        # This can be quite slow if the number of upcoming processes is long
+        try:
+            priority, task, i = min((priority, task, i) for i, priority, task in enumerate(self.__next) if max(self.max_tasks_at_once, task.cpu_pressure) <= avail_cpu and task.mem_pressure <= avail_mem)
+            self.__next[i] = self.__next.pop() # O(1)
+            heapify(self.__next) # O(n) [could be made O(log(N)) with undocumented _siftup/_siftdown]
+            self.__cpu_pressure += min(self.max_tasks_at_once, task.cpu_pressure)
+            self.__mem_pressure += task.mem_pressure
+            return task
+        except: pass
     
     def run(self, verbose=False):
         """
@@ -280,15 +287,14 @@ class Tasks:
         try:
             # Create basic variables and lock
             self.__error = None
-            self.__tasks_available = self.max_tasks_at_once
-            self.__conditional = Condition() # for locking access to Task.done, tasks_available, next, last, log, and error
+            self.__conditional = Condition() # for locking access to Task.done, cpu_pressure, mem_pressure, next, last, log, and error
 
             # Setup log
             done_tasks = self.__process_log(verbose) if exists(self.logname) else ()
             self.__log = open(self.logname, 'w', 0)
             for k,v in self.settings.iteritems(): self.__log.write("*"+k+"="+str(v)+"\n")
             # TODO: log overall inputs and outputs
-            for dc in done_tasks: self.__log.write(dc)
+            for dc in done_tasks: self.__log.write(dc+"\n")
 
             # Calcualte set of first and last tasks
             #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
@@ -307,6 +313,9 @@ class Tasks:
             self.__next = [(len(self.all_tasks) - len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
             heapify(self.__next)
 
+            self.__cpu_pressure = 0
+            self.__mem_pressure = Tasks.__get_mem_used() + 1*MB # assume that the creation of threads and everything will add some extra pressure
+
             # Keep running tasks in the tree until we have completed the root (which is self)
             while len(self.__last) != 0:
                 # Get next task
@@ -314,7 +323,7 @@ class Tasks:
                     while len(self.__last) > 0 and not self.__error:
                         task = self.__next_task()
                         if task != None: break
-                        self.__conditional.wait(60) # wait until we have some available [the timeout is important because otherwise CTRL+C does not allow aborting]
+                        self.__conditional.wait(15) # wait until we have some available [the timeout is important because otherwise CTRL+C does not allow aborting, also it allows for the case where memory is freed up beyond our control]
                     if len(self.__last) == 0: break
                     if self.__error: raise self.__error
 
@@ -330,10 +339,11 @@ class Tasks:
             if hasattr(self, '__log'):
                 self.__log.close()
                 del self.__log
+            if hasattr(self, '__cpu_pressure'): del self.__cpu_pressure
+            if hasattr(self, '__mem_pressure'): del self.__mem_pressure
             if hasattr(self, '__next'): del self.__next
             self.__conditional = None
             del self.__error
-            del self.__tasks_available
 
     def __process_log(self, verbose):
         with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
@@ -365,6 +375,6 @@ class Tasks:
         # Mark as Done
         done_tasks = tasks.viewkeys() - changed
         for n in done_tasks:
-            if verbose: print "Skipping %s" % n
+            if verbose: print "Skipping " + n
             self.find(n).done = True
-        return ((tasks[n] + ' ' + n) for n in done_tasks)
+        return sorted((tasks[n] + " " + n) for n in done_tasks)
