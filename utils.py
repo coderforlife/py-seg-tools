@@ -37,11 +37,11 @@ def only_keep_num(d, allowed, match_slice = slice(None), pattern='*'):
     from os.path import basename, join, isfile
     
     files = ((f, basename(f)[match_slice]) for f in iglob(join(d, pattern)) if isfile(f))
-    for f in (f for f, x in files if x.isdigit() and int(x) in allowed):
+    for f in (f for f, x in files if x.isdigit() and int(x) not in allowed):
         try: unlink(f)
         except Exception, e: pass
     files = ((f, basename(f)[match_slice]) for f in iglob(join(d, '.'+pattern)) if isfile(f))
-    for f in (f for f, x in files if x.isdigit() and int(x) in allowed):
+    for f in (f for f, x in files if x.isdigit() and int(x) not in allowed):
         try: unlink(f)
         except Exception, e: pass
 
