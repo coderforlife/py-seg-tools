@@ -243,7 +243,17 @@ class Tasks:
     @staticmethod
     def __get_mem_used():
         """Gets the memory used by this process and all its children"""
-        return sum((p.get_memory_info()[0] for p in this_proc.get_children(True)), this_proc.get_memory_info()[0])
+        mem = this_proc.get_memory_info()[0]
+        for p in this_proc.get_children(True):
+            try:
+                if p.is_running():
+                    mem += p.get_memory_info()[0]
+            except: pass
+        return mem
+
+        # This would be nice, but it turns out it crashes the whole program if the process finished between creating the list of children and getting the memory usage
+        # Adding "if p.is_running()" would help but still have a window for the process to finish before getting the memory usage
+        #return sum((p.get_memory_info()[0] for p in this_proc.get_children(True)), this_proc.get_memory_info()[0])
 
     def __next_task(self):
         # Must be called while self.__conditional is acquired
