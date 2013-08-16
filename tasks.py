@@ -5,6 +5,11 @@ tree as efficiently as possible, with many processes at once if able.
 
 The exact ordering of starting/completing tasks cannot be guarnteed, only that tasks that depend on
 the output of other tasks will not start until the outputing tasks are done.
+
+While tasks are running, the program listens to SIGUSR1. When recieved, the status of the tasks is
+output, including the memory load, expected memory load, tasks running, done, and total, and a list
+of all tasks that are "ready to go" (have all prerequistes complete but need either task slots or
+memory to run).
 """
 
 __all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
@@ -216,12 +221,43 @@ class Tasks:
         if (len(overall_inputs) == 0 and len(self.stand_alone) == 0) or len(self.overall_outputs()) == 0: raise ValueError('Tasks are cyclic')
         for t in overall_inputs: t.all_after()
         for t in self.stand_alone: t.all_after()
+
+    def display_stats(self, signum = 0, frame = None):
+        print '=' * 80
+        
+        mem_sys = virtual_memory()
+        mem_task = Tasks.__get_mem_used()
+        mem_press = self.__mem_pressure
+        mem_avail = mem_sys.available - max(mem_press - mem_task, 0)
+        print 'Memory (GB): System: %d / %d    Tasks: %d [%d], Avail: %d' % (
+            (mem_sys.total - mem_sys.available) // GB, mem_sys.total // GB, mem_task // GB, mem_press // GB, mem_avail // GB)
+
+        task_run   = sum(1 for t in self.all_tasks.itervalues() if hasattr(t, 'running') and t.running)
+        task_done  = sum(1 for t in self.all_tasks.itervalues() if t.done)
+        task_next  = len(self.__next)
+        task_total = len(self.all_tasks)
+        task_press = self.__cpu_pressure
+        task_max = self.max_tasks_at_once
+        print 'Tasks:       Running: %d [%d] / %d, Done: %d / %d, Upcoming: %d' % (task_run, task_press, task_max, task_done, task_total, task_next)
+
+        for priority, task in self.__next:
+            text = str(task)
+            if len(text) > 60: text = text[:56] + '...' + text[-1]
+            mem = str(task.mem_pressure // GB) + 'GB' if task.mem_pressure >= GB else ''
+            if task.mem_pressure <= mem_avail: mem += '*'
+            cpu = str(task.cpu_pressure) + 'x' if task.cpu_pressure >= 2 else ''
+            if min(task_max, task.cpu_pressure) <= (task_max - task_press): cpu += '*'
+            print '%4d %-60s %5s %4s' % (priority, text, mem, cpu) 
+
+        print '=' * 80
     
     def __run(self, task):
         # Run the task, wait for it to finish
         err = None
         try:
+            task.running = True
             task._run() # TODO: EDP on Linux deadlocks at random times...
+            del task.running
         except BaseException as e:
             err = e
 
@@ -274,7 +310,7 @@ class Tasks:
         # Second do a slow check of all upcoming tasks
         # This can be quite slow if the number of upcoming processes is long
         try:
-            priority, task, i = min((priority, task, i) for i, priority, task in enumerate(self.__next) if max(self.max_tasks_at_once, task.cpu_pressure) <= avail_cpu and task.mem_pressure <= avail_mem)
+            priority, task, i = min((priority, task, i) for i, (priority, task) in enumerate(self.__next) if min(self.max_tasks_at_once, task.cpu_pressure) <= avail_cpu and task.mem_pressure <= avail_mem)
             self.__next[i] = self.__next.pop() # O(1)
             heapify(self.__next) # O(n) [could be made O(log(N)) with undocumented _siftup/_siftdown]
             self.__cpu_pressure += min(self.max_tasks_at_once, task.cpu_pressure)
@@ -293,6 +329,7 @@ class Tasks:
         if self.__conditional != None: raise ValueError('Tasks already running')
         if len(self.outputs) == 0 and len(self.inputs) == 0 and len(self.stand_alone) == 0: return
         if len(self.outputs) == 0 or (len(self.inputs) == 0 and len(self.stand_alone) == 0): raise ValueError('Invalid set of tasks (likely cyclic)')
+        prev_signal = None
 
         try:
             # Create basic variables and lock
@@ -326,6 +363,12 @@ class Tasks:
             self.__cpu_pressure = 0
             self.__mem_pressure = Tasks.__get_mem_used() + 1*MB # assume that the creation of threads and everything will add some extra pressure
 
+            # Set a signal handler
+            try:
+                from signal import signal, SIGUSR1
+                prev_signal = signal(SIGUSR1, self.display_stats)
+            except: pass
+
             # Keep running tasks in the tree until we have completed the root (which is self)
             while len(self.__last) != 0:
                 # Get next task
@@ -346,6 +389,7 @@ class Tasks:
 
         finally:
             # Cleanup
+            if prev_signal: signal(SIGUSR1, prev_signal)
             if hasattr(self, '__log'):
                 self.__log.close()
                 del self.__log
