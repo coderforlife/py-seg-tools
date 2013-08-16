@@ -24,7 +24,7 @@ from threading import Condition, Thread
 from pipes import quote
 
 from calendar import timegm
-from time import gmtime, sleep, strftime, strptime
+from time import gmtime, sleep, strftime, strptime, time
 import re
 
 from psutil import Process, virtual_memory # not a built-in library
@@ -235,7 +235,7 @@ class Tasks:
                         heappush(self.__next, (len(self.all_tasks) - len(t.all_after()), t))
                 self.__last.discard(task)
                 # Log completion
-                self.__log.write(strftime(Tasks.__time_format, gmtime())+" "+str(task)+" \n")
+                self.__log.write(strftime(Tasks.__time_format, gmtime(time()+1))+" "+str(task)+" \n") # add one second for slightly more reliability in determing if outputs are legal
             self.__cpu_pressure -= min(self.max_tasks_at_once, task.cpu_pressure)
             self.__mem_pressure -= task.mem_pressure
             self.__conditional.notify()
