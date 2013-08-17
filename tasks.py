@@ -57,8 +57,8 @@ class Task:
         self.done = False
         self.cpu_pressure = 1
         self.mem_pressure = 1*MB
-    def __eq__(self, other): return type(self) == type(other) and self.name == self.name
-    def __lt__(self, other): return type(self) <  type(other) or  self.name <  self.name
+    def __eq__(self, other): return type(self) == type(other) and self.name == other.name
+    def __lt__(self, other): return type(self) <  type(other) or  type(self) == type(other) and self.name < other.name
     def __hash__(self):      return hash(self.name+str(type(self)))
     @abstractmethod
     def _run(self):
@@ -240,7 +240,7 @@ class Tasks:
         task_max = self.max_tasks_at_once
         print 'Tasks:       Running: %d [%d] / %d, Done: %d / %d, Upcoming: %d' % (task_run, task_press, task_max, task_done, task_total, task_next)
 
-        for priority, task in self.__next:
+        for priority, task in sorted(self.__next):
             text = str(task)
             if len(text) > 60: text = text[:56] + '...' + text[-1]
             mem = str(task.mem_pressure // GB) + 'GB' if task.mem_pressure >= GB else ''
