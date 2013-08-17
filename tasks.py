@@ -19,7 +19,7 @@ from functools import total_ordering
 #from itertools import chain
 
 from os import getcwd, getpid
-from os.path import abspath, exists, getmtime, join, normpath
+from os.path import exists, getmtime, join, normpath, realpath
 
 from heapq import heapify, heappop, heappush
 
@@ -44,13 +44,13 @@ TB = 1024*1024*1024*1024
 @total_ordering
 class Task:
     __metaclass__ = ABCMeta
-    def __init__(self, name, inputs, outputs, settings, wd = None):
+    def __init__(self, name, inputs, outputs, settings, wd = getcwd()):
         if len(outputs) == 0: raise ValueError('Each task must output at least one file')
         self.name = name
-        self.inputs = frozenset(inputs)
-        self.outputs = frozenset(outputs)
+        self.wd = realpath(wd)
+        self.inputs = frozenset(realpath(join(self.wd, f)) for f in inputs)
+        self.outputs = frozenset(realpath(join(self.wd, f)) for f in outputs)
         self.settings = frozenset(settings)
-        self.wd = abspath(wd) if wd else None
         self.before = set()
         self.after = set()
         self.__all_after = None
@@ -151,7 +151,7 @@ class Tasks:
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
 
     def __init__(self, log, settings={}, max_tasks_at_once=None, workingdir=None):
-        self.workingdir = abspath(workingdir) if workingdir else getcwd()
+        self.workingdir = realpath(workingdir) if workingdir else getcwd()
         self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
         self.logname = normpath(join(self.workingdir, log))
@@ -421,8 +421,7 @@ class Tasks:
             elif not t.settings.isdisjoint(changed_settings): changed.add(n) # settings changed
             else:
                 datetime = timegm(strptime(dt, Tasks.__time_format))
-                inputs = (normpath(join(t.wd, f)) for f in t.inputs)
-                if any((exists(f) and getmtime(f) >= datetime for f in inputs)) or any(not exists(normpath(join(t.wd, f))) for f in t.outputs):
+                if any((exists(f) and getmtime(f) >= datetime for f in t.inputs)) or any(not exists(f) for f in t.outputs):
                     changed.add(n)
         for n in changed.copy(): changed.update(str(t) for t in self.find(n).all_after()) # add every task that comes after a changed task
 
