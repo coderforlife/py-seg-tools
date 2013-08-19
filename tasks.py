@@ -370,11 +370,14 @@ class Tasks:
             self.__conditional = Condition() # for locking access to Task.done, cpu_pressure, mem_pressure, next, last, log, and error
 
             # Setup log
-            done_tasks = self.__process_log(verbose) if exists(self.logname) else ()
+            done_tasks = self.__process_log() if exists(self.logname) else ()
             self.__log = open(self.logname, 'w', 0)
             for k,v in self.settings.iteritems(): self.__log.write("*"+k+"="+str(v)+"\n")
             # TODO: log overall inputs and outputs
-            for dc in done_tasks: self.__log.write(dc+"\n")
+            for dc in done_tasks:
+                if verbose: print "Skipping " + dc[20:].strip()
+                self.__log.write(dc+"\n")
+            if verbose and len(done_tasks > 0): print '-' * 80
 
             # Calcualte set of first and last tasks
             #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
@@ -432,7 +435,7 @@ class Tasks:
             self.__conditional = None
             del self.__error
 
-    def __process_log(self, verbose):
+    def __process_log(self):
         with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
         re_date = re.compile('\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\s')
         lines = [line for line in lines if len(line) != 0]
@@ -460,7 +463,5 @@ class Tasks:
 
         # Mark as Done
         done_tasks = tasks.viewkeys() - changed
-        for n in done_tasks:
-            if verbose: print "Skipping " + n
-            self.find(n).done = True
+        for n in done_tasks: self.find(n).done = True
         return sorted((tasks[n] + " " + n) for n in done_tasks)
