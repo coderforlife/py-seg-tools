@@ -188,10 +188,11 @@ class Tasks:
         self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
         self.logname = normpath(join(self.workingdir, log))
-        self.outputs     = {} # key is a filename, value is a task that outputs that file
-        self.inputs      = {} # key is a filename, value is a list of tasks that need that file as input
-        self.stand_alone = set() # list of tasks that have no input files
-        self.all_tasks   = {} # all tasks, indexed by their string representation
+        self.outputs    = {} # key is a filename, value is a task that outputs that file
+        self.inputs     = {} # key is a filename, value is a list of tasks that need that file as input
+        self.generators = set() # list of tasks that have no input files
+        self.cleanups   = set() # list of tasks that have no output files
+        self.all_tasks  = {} # all tasks, indexed by their string representation
         self.__conditional = None
 
     def add(self, cmd, inputs, outputs, settings=(), wd=None):
@@ -222,19 +223,23 @@ class Tasks:
         # Processes the input and output information from the task
         # Updates all before and after lists as well
         if not task.inputs.isdisjoint(task.outputs): raise ValueError('A task cannot output a file that it needs for input')
-        is_stand_alone = len(task.inputs) == 0
+        is_generator, is_cleanup = len(task.inputs) == 0, len(task.outputs) == 0
         new_inputs  = task.inputs  | (self.overall_inputs() - task.outputs)
         new_outputs = task.outputs | (self.overall_outputs() - task.inputs)
-        if not new_inputs.isdisjoint(new_outputs): raise ValueError('Task addition will cause a cycle in dependencies')
-        for o in task.outputs:
-            if o in self.outputs: raise ValueError('Each file can only be output by one task')
-        for o in task.outputs:
-            self.outputs[o] = task
-            if o in self.inputs:
-                task.after.update(self.inputs[o])
-                task._clear_cached_all_after()
-                for t in self.inputs[o]: t.before.add(task)
-        if is_stand_alone: self.stand_alone.add(task)
+        if not new_inputs.isdisjoint(new_outputs) or
+            (len(new_inputs) == 0 and not is_generator and len(self.generators) == 0) or
+            (len(new_outputs) == 0 and not is_cleanup and len(self.cleanups) == 0): raise ValueError('Task addition will cause a cycle in dependencies')
+        if is_cleanup: self.cleanups.add(task)
+        else:
+            for o in task.outputs:
+                if o in self.outputs: raise ValueError('Each file can only be output by one task')
+            for o in task.outputs:
+                self.outputs[o] = task
+                if o in self.inputs:
+                    task.after.update(self.inputs[o])
+                    task._clear_cached_all_after()
+                    for t in self.inputs[o]: t.before.add(task)
+        if is_generator: self.generators.add(task)
         else:
             for i in task.inputs:
                 self.inputs.setdefault(i, []).append(task)
@@ -243,7 +248,6 @@ class Tasks:
                     self.outputs[i].after.add(task)
                     self.outputs[i]._clear_cached_all_after()
         self.all_tasks[str(task)] = task
-        #if (len(self.overall_inputs()) == 0 and len(self.stand_alone) == 0) or len(self.overall_outputs()) == 0: raise ValueError('Tasks are now cyclic')
         return task
     def find(self, cmd): return self.all_tasks.get(cmd)
     def overall_inputs(self):  return self.inputs.viewkeys() - self.outputs.viewkeys() #set(self.inputs.iterkeys()) - set(self.outputs.iterkeys())
@@ -251,9 +255,9 @@ class Tasks:
     def __check_acyclic(self):
         if len(self.outputs) == 0 and len(self.inputs) == 0: return
         overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
-        if (len(overall_inputs) == 0 and len(self.stand_alone) == 0) or len(self.overall_outputs()) == 0: raise ValueError('Tasks are cyclic')
+        if (len(overall_inputs) == 0 and len(self.generators) == 0) or (len(self.overall_outputs()) == 0 and len(self.cleanups) == 0): raise ValueError('Tasks are cyclic')
         for t in overall_inputs: t.all_after()
-        for t in self.stand_alone: t.all_after()
+        for t in self.generators: t.all_after()
 
     def display_stats(self, signum = 0, frame = None):
         print '=' * 80
@@ -360,8 +364,8 @@ class Tasks:
 
         # Checks
         if self.__conditional != None: raise ValueError('Tasks already running')
-        if len(self.outputs) == 0 and len(self.inputs) == 0 and len(self.stand_alone) == 0: return
-        if len(self.outputs) == 0 or (len(self.inputs) == 0 and len(self.stand_alone) == 0): raise ValueError('Invalid set of tasks (likely cyclic)')
+        if  len(self.inputs) == 0 and len(self.generators) == 0  and len(self.outputs) == 0 and len(self.cleanups) == 0 : return
+        if (len(self.inputs) == 0 and len(self.generators) == 0) or (len(self.outputs) == 0 and len(self.cleanups) == 0): raise ValueError('Invalid set of tasks (likely cyclic)')
         prev_signal = None
 
         try:
@@ -383,11 +387,12 @@ class Tasks:
             #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
             overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
             overall_outputs = {self.outputs[f] for f in self.overall_outputs()}
-            if (len(overall_inputs) == 0 and len(self.stand_alone) == 0) or len(overall_outputs) == 0: raise ValueError('Tasks are cyclic')
+            if (len(overall_inputs) == 0 and len(self.generators) == 0) or (len(overall_outputs) == 0 and len(self.cleanups) == 0): raise ValueError('Tasks are cyclic')
             for t in overall_inputs: t.all_after() # precompute these (while also checking for cyclic-ness)
-            for t in self.stand_alone: t.all_after()
+            for t in self.generators: t.all_after()
             self.__last = {t for t in overall_outputs if not t.done}
-            first = self.stand_alone | overall_inputs
+            self.__last.update(t for t in self.cleanups if not t.done)
+            first = self.generators | overall_inputs
             changed = True
             while changed:
                 changed = False
@@ -412,7 +417,7 @@ class Tasks:
                     while len(self.__last) > 0 and not self.__error:
                         task = self.__next_task()
                         if task != None: break
-                        self.__conditional.wait(15) # wait until we have some available [the timeout is important because otherwise CTRL+C does not allow aborting, also it allows for the case where memory is freed up beyond our control]
+                        self.__conditional.wait(30) # wait until we have some available [the timeout is important because otherwise CTRL+C does not allow aborting, also it allows for the case where memory is freed up beyond our control]
                     if len(self.__last) == 0: break
                     if self.__error: raise self.__error
 
