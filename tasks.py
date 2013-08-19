@@ -12,6 +12,21 @@ of all tasks that are "ready to go" (have all prerequistes complete but need eit
 memory to run).
 """
 
+##### Monitor Task Resource Usage #####
+# Setting this to True causes a "rusage.log" file to be created in the real working directory that
+# is filled with the resource usage of all tasks run. Each line is first the name of the task then
+# the rusage fields (see http://docs.python.org/2/library/resource.html#resource-usage and
+# man 2 getrusage for more information). It will not record Python function tasks that do not run
+# in a seperate process.
+#
+# This is really useful if you don't know what kind of pressure to associate with tasks as you can
+# get the maximum memory used by every task.
+#
+# This cannot be used on Windows, setting it to True will cause an exception.
+#
+# On some forms of *nix the ru_maxrss and other fields will always be 0.
+MONITOR_TASK_RESOURCE_USAGE = True
+
 __all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
 
 from abc import ABCMeta, abstractmethod
@@ -40,6 +55,17 @@ KB = 1024
 MB = 1024*1024
 GB = 1024*1024*1024
 TB = 1024*1024*1024*1024
+
+if MONITOR_TASK_RESOURCE_USAGE:
+    RUSAGE_LOG = open('rusage.log', 'a', 1)
+    def monitor(pid, name):
+        from os import wait4
+        pid, exitcode, rusage = wait4(pid, 0)
+        if exitcode: raise CalledProcessError(exitcode, name)
+        RUSAGE_LOG.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (name, 
+            rusage.ru_utime, rusage.ru_stime, rusage.ru_maxrss, rusage.ru_ixrss, rusage.ru_idrss, rusage.ru_isrss,
+            rusage.ru_minflt, rusage.ru_majflt, rusage.ru_nswap, rusage.ru_inblock, rusage.ru_oublock,
+            rusage.ru_msgsnd, rusage.ru_msgrcv, rusage.ru_nsignals, rusage.ru_nvcsw, rusage.ru_nivcsw))
 
 @total_ordering
 class Task:
@@ -112,7 +138,11 @@ class TaskUsingProcess(Task):
         self.cmd = cmd
         Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
     def _run(self):
-        check_call(self.cmd, cwd=self.wd)
+        if MONITOR_TASK_RESOURCE_USAGE:
+            from subprocess import Popen
+            monitor(Popen(self.cmd, cwd=self.wd).pid, str(self))
+        else:
+            check_call(self.cmd, cwd=self.wd)
 class TaskUsingPythonFunction(Task):
     def __init__(self, target, args, kwargs, inputs, outputs, settings):
         self.target = target
@@ -144,8 +174,11 @@ class TaskUsingPythonProcess(Task):
             p = PyProcess(target=self.target, args=self.args, kwargs=self.kwargs)
         p.daemon = True
         p.start()
-        p.join()
-        if p.exitcode: raise CalledProcessError(p.exitcode, str(self))
+        if MONITOR_TASK_RESOURCE_USAGE:
+            monitor(p.pid, str(self))
+        else:
+            p.join()
+            if p.exitcode: raise CalledProcessError(p.exitcode, str(self))
 
 class Tasks:
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
