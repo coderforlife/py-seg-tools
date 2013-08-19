@@ -289,7 +289,7 @@ class Tasks:
         err = None
         try:
             task.running = True
-            task._run() # TODO: EDP on Linux deadlocks at random times...
+            task._run()
             del task.running
         except BaseException as e:
             err = e

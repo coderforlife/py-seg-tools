@@ -9,5 +9,4 @@ create_labels:
  * support running connected components code on BW data (scipy.ndimage.label)
  * support negative values in signed types
 Tasks:
- * check if EPD still deadlocks with the overhauled system
  * test TaskUsingPythonFunction and TaskUsingPythonProcess
