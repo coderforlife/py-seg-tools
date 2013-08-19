@@ -13,7 +13,6 @@ def combine_points(input_files, output_file):
     input_files is an iterable of file names, in the order you want them to be combined.
     output_files is the single output file to save results to
     """
-    #from  import 
     with open(output_file, "wb") as out:
         out_cn = 0 # actual starting value is 1
         last_cn = None
@@ -73,4 +72,3 @@ if __name__ == "__main__":
 
     # Do the actual work!
     combine_points(inputs, output)
-
