@@ -442,12 +442,11 @@ class Tasks:
 
     def __process_log(self):
         with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
-        re_date = re.compile('\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\s')
         lines = [line for line in lines if len(line) != 0]
         #comments = [line for line in lines if line[0] == '#']
         # Note: this will take the last found setting/command with a given and silently drop the others
         settings = {s[0].strip():s[1].strip() for s in (line[1:].split('=',1) for line in lines if line[0] == '*')} # setting => value
-        tasks = {line[20:].strip():line[:19] for line in lines if re_date.match(line)} # task string => date/time string
+        tasks = {line[20:].strip():line[:19] for line in lines if re.match('\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\s', line)} # task string => date/time string
         #if len(lines) != len(comments) + len(settings) + len(commands): raise ValueError('Invalid file format for tasks log')
 
         # Check Settings
