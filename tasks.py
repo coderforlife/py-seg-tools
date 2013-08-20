@@ -226,8 +226,8 @@ class Tasks:
         is_generator, is_cleanup = len(task.inputs) == 0, len(task.outputs) == 0
         new_inputs  = task.inputs  | (self.overall_inputs() - task.outputs)
         new_outputs = task.outputs | (self.overall_outputs() - task.inputs)
-        if not new_inputs.isdisjoint(new_outputs) or
-            (len(new_inputs) == 0 and not is_generator and len(self.generators) == 0) or
+        if not new_inputs.isdisjoint(new_outputs) or \
+            (len(new_inputs) == 0 and not is_generator and len(self.generators) == 0) or \
             (len(new_outputs) == 0 and not is_cleanup and len(self.cleanups) == 0): raise ValueError('Task addition will cause a cycle in dependencies')
         if is_cleanup: self.cleanups.add(task)
         else:
@@ -381,7 +381,7 @@ class Tasks:
             for dc in done_tasks:
                 if verbose: print "Skipping " + dc[20:].strip()
                 self.__log.write(dc+"\n")
-            if verbose and len(done_tasks > 0): print '-' * 80
+            if verbose and len(done_tasks) > 0: print '-' * 80
 
             # Calcualte set of first and last tasks
             #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
