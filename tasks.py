@@ -129,7 +129,6 @@ class TaskUsingProcess(Task):
         if isinstance(cmd, basestring):
             import shlex
             cmd = shlex.split(cmd)
-            # TODO: check for <, >, and |
         else:
             cmd = [str(a) for a in cmd]
         self.cmd = cmd
