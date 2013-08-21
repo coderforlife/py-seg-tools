@@ -10,22 +10,12 @@ While tasks are running, the program listens to SIGUSR1. When recieved, the stat
 output, including the memory load, expected memory load, tasks running, done, and total, and a list
 of all tasks that are "ready to go" (have all prerequistes complete but need either task slots or
 memory to run).
-"""
 
-##### Monitor Task Resource Usage #####
-# Setting this to True causes a "rusage.log" file to be created in the real working directory that
-# is filled with the resource usage of all tasks run. Each line is first the name of the task then
-# the rusage fields (see http://docs.python.org/2/library/resource.html#resource-usage and
-# man 2 getrusage for more information). It will not record Python function tasks that do not run
-# in a seperate process.
-#
-# This is really useful if you don't know what kind of pressure to associate with tasks as you can
-# get the maximum memory used by every task.
-#
-# This cannot be used on Windows, setting it to True will cause an exception.
-#
-# On some forms of *nix the ru_maxrss and other fields will always be 0.
-MONITOR_TASK_RESOURCE_USAGE = True
+On *nix systems resource usage can be obtained and saved to a log. Each line is first the name of
+the task then the rusage fields (see http://docs.python.org/2/library/resource.html#resource-usage
+and man 2 getrusage for more information). It will not record Python function tasks that do not run
+in a seperate process. On some forms of *nix the ru_maxrss and other fields will always be 0.
+"""
 
 __all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
 
@@ -56,16 +46,14 @@ MB = 1024*1024
 GB = 1024*1024*1024
 TB = 1024*1024*1024*1024
 
-if MONITOR_TASK_RESOURCE_USAGE:
-    RUSAGE_LOG = open('rusage.log', 'a', 1)
-    def monitor(pid, name):
-        from os import wait4
-        pid, exitcode, rusage = wait4(pid, 0)
-        if exitcode: raise CalledProcessError(exitcode, name)
-        RUSAGE_LOG.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (name, 
-            rusage.ru_utime, rusage.ru_stime, rusage.ru_maxrss, rusage.ru_ixrss, rusage.ru_idrss, rusage.ru_isrss,
-            rusage.ru_minflt, rusage.ru_majflt, rusage.ru_nswap, rusage.ru_inblock, rusage.ru_oublock,
-            rusage.ru_msgsnd, rusage.ru_msgrcv, rusage.ru_nsignals, rusage.ru_nvcsw, rusage.ru_nivcsw))
+def get_and_save_rusage(rusagelog, pid, name):
+    from os import wait4
+    pid, exitcode, rusage = wait4(pid, 0)
+    if exitcode: raise CalledProcessError(exitcode, name)
+    rusagelog.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (name, 
+        rusage.ru_utime, rusage.ru_stime, rusage.ru_maxrss, rusage.ru_ixrss, rusage.ru_idrss, rusage.ru_isrss,
+        rusage.ru_minflt, rusage.ru_majflt, rusage.ru_nswap, rusage.ru_inblock, rusage.ru_oublock,
+        rusage.ru_msgsnd, rusage.ru_msgrcv, rusage.ru_nsignals, rusage.ru_nvcsw, rusage.ru_nivcsw))
 
 @total_ordering
 class Task:
@@ -74,6 +62,9 @@ class Task:
         if len(outputs) == 0: raise ValueError('Each task must output at least one file')
         self.name = name
         self.wd = realpath(wd)
+        if isinstance(inputs, basestring): inputs = (inputs,)
+        if isinstance(outputs, basestring): outputs = (outputs,)
+        if isinstance(settings, basestring): settings = (settings,)
         self.inputs = frozenset(realpath(join(self.wd, f)) for f in inputs)
         self.outputs = frozenset(realpath(join(self.wd, f)) for f in outputs)
         self.settings = frozenset(settings)
@@ -87,7 +78,7 @@ class Task:
     def __lt__(self, other): return type(self) <  type(other) or  type(self) == type(other) and self.name < other.name
     def __hash__(self):      return hash(self.name+str(type(self)))
     @abstractmethod
-    def _run(self):
+    def _run(self, rusagelog=None):
         """Starts the task and waits, throws exceptions if something goes wrong"""
         pass
     def __repr__(self): return self.name
@@ -135,16 +126,23 @@ class Task:
 
 class TaskUsingProcess(Task):
     def __init__(self, cmd, inputs, outputs, settings, wd):
+        if isinstance(cmd, basestring):
+            import shlex
+            cmd = shlex.split(cmd)
+            # TODO: check for <, >, and |
+        else:
+            cmd = [str(a) for a in cmd]
         self.cmd = cmd
         Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
-    def _run(self):
-        if MONITOR_TASK_RESOURCE_USAGE:
+    def _run(self, rusagelog=None):
+        if rusuagelog:
             from subprocess import Popen
-            monitor(Popen(self.cmd, cwd=self.wd).pid, str(self))
+            get_and_save_rusage(rusuagelog, Popen(self.cmd, cwd=self.wd).pid, str(self))
         else:
             check_call(self.cmd, cwd=self.wd)
 class TaskUsingPythonFunction(Task):
     def __init__(self, target, args, kwargs, inputs, outputs, settings):
+        if not callable(target): raise ValueError('Target is not callable')
         self.target = target
         self.args = args
         self.kwargs = kwargs
@@ -153,9 +151,10 @@ class TaskUsingPythonFunction(Task):
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
         Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings)
     # We don't actually need to spawn a thread since there is a thread spawned essentially just for _run()
-    def _run(self): self.target(*self.args, **self.kwargs)
+    def _run(self, rusagelog=None): self.target(*self.args, **self.kwargs)
 class TaskUsingPythonProcess(Task):
     def __init__(self, target, args, kwargs, inputs, outputs, settings, wd):
+        if not callable(target): raise ValueError('Target is not callable')
         self.target = target
         self.args = args
         self.kwargs = kwargs
@@ -163,7 +162,7 @@ class TaskUsingPythonProcess(Task):
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
         Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings, wd)
-    def _run(self):
+    def _run(self, rusagelog=None):
         if self.wd:
             def _chdir_first():
                 from os import chdir
@@ -174,8 +173,8 @@ class TaskUsingPythonProcess(Task):
             p = PyProcess(target=self.target, args=self.args, kwargs=self.kwargs)
         p.daemon = True
         p.start()
-        if MONITOR_TASK_RESOURCE_USAGE:
-            monitor(p.pid, str(self))
+        if rusuagelog:
+            get_and_save_rusage(rusuagelog, p.pid, str(self))
         else:
             p.join()
             if p.exitcode: raise CalledProcessError(p.exitcode, str(self))
@@ -183,11 +182,12 @@ class TaskUsingPythonProcess(Task):
 class Tasks:
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
 
-    def __init__(self, log, settings={}, max_tasks_at_once=None, workingdir=None):
+    def __init__(self, log, settings={}, max_tasks_at_once=None, workingdir=None, rusage_log=None):
         self.workingdir = realpath(workingdir) if workingdir else getcwd()
         self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
         self.logname = normpath(join(self.workingdir, log))
+        self.rusage_log = realpath(join(self.workingdir, russage_log)) if rusage_log else None
         self.outputs    = {} # key is a filename, value is a task that outputs that file
         self.inputs     = {} # key is a filename, value is a list of tasks that need that file as input
         self.generators = set() # list of tasks that have no input files
@@ -198,7 +198,7 @@ class Tasks:
     def add(self, cmd, inputs, outputs, settings=(), wd=None):
         """
         Adds a new task.
-        The cmd should be an array of command line parts (with the first one being the program to run).
+        The cmd should be an array of command line parts (with the first one being the program to run) or a command line string.
         The task does not run until sometime after run() is called.
         The inputs, outputs, and settings are used to determine dependencies between individual tasks and if individual tasks can be skipped or not
         """
@@ -222,6 +222,7 @@ class Tasks:
     def _add(self, task):
         # Processes the input and output information from the task
         # Updates all before and after lists as well
+        if len(task.settings - self.settings.viewkeys()) > 0: raise ValueError('Task had settings that were not originally specified')
         if not task.inputs.isdisjoint(task.outputs): raise ValueError('A task cannot output a file that it needs for input')
         is_generator, is_cleanup = len(task.inputs) == 0, len(task.outputs) == 0
         new_inputs  = task.inputs  | (self.overall_inputs() - task.outputs)
@@ -293,7 +294,7 @@ class Tasks:
         err = None
         try:
             task.running = True
-            task._run()
+            task._run(self.__rusagelog)
             del task.running
         except BaseException as e:
             err = e
@@ -382,6 +383,7 @@ class Tasks:
                 if verbose: print "Skipping " + dc[20:].strip()
                 self.__log.write(dc+"\n")
             if verbose and len(done_tasks) > 0: print '-' * 80
+            self.__rusagelog = open(self.rusage_log, 'a', 1) if self.rusage_log else None
 
             # Calcualte set of first and last tasks
             #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
@@ -434,6 +436,9 @@ class Tasks:
             if hasattr(self, '__log'):
                 self.__log.close()
                 del self.__log
+            if hasattr(self, '__rusagelog'):
+                if self.__rusagelog: self.__rusagelog.close()
+                del self.__rusagelog
             if hasattr(self, '__cpu_pressure'): del self.__cpu_pressure
             if hasattr(self, '__mem_pressure'): del self.__mem_pressure
             if hasattr(self, '__next'): del self.__next
