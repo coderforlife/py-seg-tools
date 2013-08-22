@@ -134,9 +134,9 @@ class TaskUsingProcess(Task):
         self.cmd = cmd
         Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
     def _run(self, rusagelog=None):
-        if rusuagelog:
+        if rusagelog:
             from subprocess import Popen
-            get_and_save_rusage(rusuagelog, Popen(self.cmd, cwd=self.wd).pid, str(self))
+            get_and_save_rusage(rusagelog, Popen(self.cmd, cwd=self.wd).pid, str(self))
         else:
             check_call(self.cmd, cwd=self.wd)
 class TaskUsingPythonFunction(Task):
@@ -172,8 +172,8 @@ class TaskUsingPythonProcess(Task):
             p = PyProcess(target=self.target, args=self.args, kwargs=self.kwargs)
         p.daemon = True
         p.start()
-        if rusuagelog:
-            get_and_save_rusage(rusuagelog, p.pid, str(self))
+        if rusagelog:
+            get_and_save_rusage(rusagelog, p.pid, str(self))
         else:
             p.join()
             if p.exitcode: raise CalledProcessError(p.exitcode, str(self))
@@ -186,7 +186,7 @@ class Tasks:
         self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
         self.logname = normpath(join(self.workingdir, log))
-        self.rusage_log = realpath(join(self.workingdir, russage_log)) if rusage_log else None
+        self.rusage_log = realpath(join(self.workingdir, rusage_log)) if rusage_log else None
         self.outputs    = {} # key is a filename, value is a task that outputs that file
         self.inputs     = {} # key is a filename, value is a list of tasks that need that file as input
         self.generators = set() # list of tasks that have no input files
