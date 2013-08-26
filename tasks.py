@@ -29,7 +29,7 @@ from os.path import exists, getmtime, join, normpath, realpath
 from heapq import heapify, heappop, heappush
 
 from multiprocessing import cpu_count, Process as PyProcess
-from subprocess import check_call, CalledProcessError
+from subprocess import Popen, CalledProcessError
 from threading import Condition, Thread
 from pipes import quote
 
@@ -45,15 +45,6 @@ KB = 1024
 MB = 1024*1024
 GB = 1024*1024*1024
 TB = 1024*1024*1024*1024
-
-def get_and_save_rusage(rusagelog, pid, name):
-    from os import wait4
-    pid, exitcode, rusage = wait4(pid, 0)
-    if exitcode: raise CalledProcessError(exitcode, name)
-    rusagelog.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (name, 
-        rusage.ru_utime, rusage.ru_stime, rusage.ru_maxrss, rusage.ru_ixrss, rusage.ru_idrss, rusage.ru_isrss,
-        rusage.ru_minflt, rusage.ru_majflt, rusage.ru_nswap, rusage.ru_inblock, rusage.ru_oublock,
-        rusage.ru_msgsnd, rusage.ru_msgrcv, rusage.ru_nsignals, rusage.ru_nvcsw, rusage.ru_nivcsw))
 
 @total_ordering
 class Task:
@@ -77,13 +68,41 @@ class Task:
     def __eq__(self, other): return type(self) == type(other) and self.name == other.name
     def __lt__(self, other): return type(self) <  type(other) or  type(self) == type(other) and self.name < other.name
     def __hash__(self):      return hash(self.name+str(type(self)))
+    def __repr__(self):      return self.name
+    
     @abstractmethod
     def _run(self, rusagelog=None):
-        """Starts the task and waits, throws exceptions if something goes wrong"""
+        """
+        Starts the task and waits, throws exceptions if something goes wrong.
+        This is in abstract method and is implemented in each derived class.
+        """
         pass
-    def __repr__(self): return self.name
+    def _run_proc(self, p, rusagelog=None):
+        """
+        The _run method for seperate process systems. The argument p is a Popen-like object that has
+        the attribute 'pid' and the method 'wait' that takes no arguments and retruns the exit code.
+        """
+        self.pid = p.pid
+        if rusagelog:
+            from os import wait4
+            pid, exitcode, rusage = wait4(p.pid, 0)
+            del self.pid
+            if exitcode: raise CalledProcessError(exitcode, str(self))
+            rusagelog.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (str(self), 
+                rusage.ru_utime, rusage.ru_stime, rusage.ru_maxrss, rusage.ru_ixrss, rusage.ru_idrss, rusage.ru_isrss,
+                rusage.ru_minflt, rusage.ru_majflt, rusage.ru_nswap, rusage.ru_inblock, rusage.ru_oublock,
+                rusage.ru_msgsnd, rusage.ru_msgrcv, rusage.ru_nsignals, rusage.ru_nvcsw, rusage.ru_nivcsw))
+        else:
+            exitcode = p.wait()
+            del self.pid
+            if exitcode: raise CalledProcessError(exitcode, str(self))
+            
     def all_after(self, back_stack = set()):
-        """Get all tasks that come after this task while performing a test for cycles"""
+        """
+        Get a set of all tasks that come after this task while performing a test for cycles.
+        This can be an expensive operation but is cached so multiple calls to it are fast. The cache
+        is cleared after any tasks are added to the tree though.
+        """
         if self.__all_after == None:
             if self in back_stack: raise ValueError('Tasks are cyclic')
             back_stack = back_stack.copy()
@@ -133,12 +152,7 @@ class TaskUsingProcess(Task):
             cmd = [str(a) for a in cmd]
         self.cmd = cmd
         Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
-    def _run(self, rusagelog=None):
-        if rusagelog:
-            from subprocess import Popen
-            get_and_save_rusage(rusagelog, Popen(self.cmd, cwd=self.wd).pid, str(self))
-        else:
-            check_call(self.cmd, cwd=self.wd)
+    def _run(self, rusagelog=None): self._run_proc(Popen(self.cmd, cwd=self.wd), rusagelog)
 class TaskUsingPythonFunction(Task):
     def __init__(self, target, args, kwargs, inputs, outputs, settings):
         if not callable(target): raise ValueError('Target is not callable')
@@ -152,6 +166,26 @@ class TaskUsingPythonFunction(Task):
     # We don't actually need to spawn a thread since there is a thread spawned essentially just for _run()
     def _run(self, rusagelog=None): self.target(*self.args, **self.kwargs)
 class TaskUsingPythonProcess(Task):
+    class Popen:
+        """
+        This is a Popen-like class for Python multiprocessing processes. It supports the pid
+        attribute, the wait() function, and changing the working directory.
+        """
+        def __init__(target, args, kwargs, wd):
+            if wd:
+                def _chdir_first():
+                    from os import chdir
+                    chdir(wd)
+                    target(*args, **kwargs)
+                p = PyProcess(_chdir_first)
+            else:
+                p = PyProcess(target=target, args=args, kwargs=kwargs)
+            p.daemon = True
+            p.start()
+            self.proc = p
+        @property
+        def pid(self): return self.proc.pid
+        def wait(self): self.proc.join(); return self.proc.exitcode
     def __init__(self, target, args, kwargs, inputs, outputs, settings, wd):
         if not callable(target): raise ValueError('Target is not callable')
         self.target = target
@@ -161,22 +195,7 @@ class TaskUsingPythonProcess(Task):
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
         Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings, wd)
-    def _run(self, rusagelog=None):
-        if self.wd:
-            def _chdir_first():
-                from os import chdir
-                chdir(self.wd)
-                self.target(*self.args, **self.kwargs)
-            p = PyProcess(_chdir_first)
-        else:
-            p = PyProcess(target=self.target, args=self.args, kwargs=self.kwargs)
-        p.daemon = True
-        p.start()
-        if rusagelog:
-            get_and_save_rusage(rusagelog, p.pid, str(self))
-        else:
-            p.join()
-            if p.exitcode: raise CalledProcessError(p.exitcode, str(self))
+    def _run(self, rusagelog=None): self._run_proc(TaskUsingPythonProcess.Popen(self.target, self.args, self.kwargs, self.wd), rusagelog)
 
 class Tasks:
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
@@ -267,24 +286,55 @@ class Tasks:
         mem_press = self.__mem_pressure
         mem_avail = mem_sys.available - max(mem_press - mem_task, 0)
         print 'Memory (GB): System: %d / %d    Tasks: %d [%d], Avail: %d' % (
-            (mem_sys.total - mem_sys.available) // GB, mem_sys.total // GB, mem_task // GB, mem_press // GB, mem_avail // GB)
+            int(round(float(mem_sys.total - mem_sys.available) / GB)),
+            int(round(float(mem_sys.total) / GB)),
+            int(round(float(mem_task) / GB)),
+            int(round(float(mem_press) / GB)),
+            int(round(float(mem_avail) / GB)))
 
-        task_run   = sum(1 for t in self.all_tasks.itervalues() if hasattr(t, 'running') and t.running)
         task_done  = sum(1 for t in self.all_tasks.itervalues() if t.done)
         task_next  = len(self.__next)
+        task_run   = len(self.__running)
         task_total = len(self.all_tasks)
         task_press = self.__cpu_pressure
         task_max = self.max_tasks_at_once
         print 'Tasks:       Running: %d [%d] / %d, Done: %d / %d, Upcoming: %d' % (task_run, task_press, task_max, task_done, task_total, task_next)
 
-        for priority, task in sorted(self.__next):
-            text = str(task)
-            if len(text) > 60: text = text[:56] + '...' + text[-1]
-            mem = str(task.mem_pressure // GB) + 'GB' if task.mem_pressure >= GB else ''
-            if task.mem_pressure <= mem_avail: mem += '*'
-            cpu = str(task.cpu_pressure) + 'x' if task.cpu_pressure >= 2 else ''
-            if min(task_max, task.cpu_pressure) <= (task_max - task_press): cpu += '*'
-            print '%4d %-60s %5s %4s' % (priority, text, mem, cpu) 
+        print '-' * 80
+        if len(self.__running) == 0:
+            print 'Running: none (probably waiting for more memory)'
+        else:
+            print 'Running:'
+            for task in sorted(self.__running):
+                text = str(task)
+                if len(text) > 60: text = text[:56] + '...' + text[-1]
+                real_mem = '? '
+                timings = ''
+                if hasattr(task, 'pid') and task.pid:
+                    try:
+                        p = Process(task.pid)
+                        RSS, VMS = p.get_memory_info()
+                        real_mem = str(int(round(float(RSS) / GB)))
+                        timing = int(round(sum(p.get_cpu_times())))
+                        hours, mins, secs = timing // (60*60), timing // 60, timing % 60
+                        timing = ('%d:%02d:%02d' % (hours, mins - hours * 60, secs)) if hours > 0 else ('%d:%02d' % (mins, secs))
+                    except: pass
+                mem = str(int(round(float(task.mem_pressure) / GB)))
+                print '%-60s %3sGB [%3s] %7s' % (text, real_mem, mem, timing)
+
+        print '-' * 80
+        if len(self.__next) == 0:
+            print 'Upcoming: none'
+        else:
+            print 'Upcoming:'
+            for priority, task in sorted(self.__next):
+                text = str(task)
+                if len(text) > 60: text = text[:56] + '...' + text[-1]
+                mem = str(int(round(float(task.mem_pressure) / GB))) + 'GB' if task.mem_pressure >= 0.5*GB else ''
+                if task.mem_pressure <= mem_avail: mem += '*'
+                cpu = str(task.cpu_pressure) + 'x' if task.cpu_pressure >= 2 else ''
+                if min(task_max, task.cpu_pressure) <= (task_max - task_press): cpu += '*'
+                print '%4d %-60s %5s %4s' % (priority, text, mem, cpu) 
 
         print '=' * 80
     
@@ -292,9 +342,9 @@ class Tasks:
         # Run the task, wait for it to finish
         err = None
         try:
-            task.running = True
+            tasks.__running.add(task)
             task._run(self.__rusagelog)
-            del task.running
+            tasks.__running.remove(task)
         except BaseException as e:
             err = e
 
@@ -316,6 +366,9 @@ class Tasks:
     @staticmethod
     def __get_mem_used():
         """Gets the memory used by this process and all its children"""
+        # This would be nice, but it turns out it crashes the whole program if the process finished between creating the list of children and getting the memory usage
+        # Adding "if p.is_running()" would help but still have a window for the process to finish before getting the memory usage
+        #return sum((p.get_memory_info()[0] for p in this_proc.get_children(True)), this_proc.get_memory_info()[0])
         mem = this_proc.get_memory_info()[0]
         for p in this_proc.get_children(True):
             try:
@@ -324,12 +377,29 @@ class Tasks:
             except: pass
         return mem
 
-        # This would be nice, but it turns out it crashes the whole program if the process finished between creating the list of children and getting the memory usage
-        # Adding "if p.is_running()" would help but still have a window for the process to finish before getting the memory usage
-        #return sum((p.get_memory_info()[0] for p in this_proc.get_children(True)), this_proc.get_memory_info()[0])
+    def __calc_next(self):
+        """Calculate the list of tasks that have all prerequisites completed."""
+        # Must be called when __next is not locked in another thread (so either before any threads are started or self.__conditional is acquired)
+        overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
+        if len(overall_inputs) == 0 and len(self.generators) == 0: raise ValueError('Tasks are cyclic')
+        for t in overall_inputs: t.all_after() # precompute these (while also checking for cyclic-ness)
+        for t in self.generators: t.all_after()
+        first = self.generators | overall_inputs
+        changed = True
+        while changed:
+            changed = False
+            for t in first.copy():
+                if t.done: first.remove(t); first.update(t.after); changed = True
+        self.__next = [(len(self.all_tasks) - len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
+        heapify(self.__next)
 
     def __next_task(self):
+        """Get the next task to be run based on priority and memory/CPU usage"""
         # Must be called while self.__conditional is acquired
+
+        if len(self.__next) == 0 and len(self.__running) == 0:
+            # Something went wrong... we have nothing running and nothing upcoming... recalulate the next list
+            self.__calc_next()
         avail_cpu = self.max_tasks_at_once - self.__cpu_pressure
         if len(self.__next) == 0 or avail_cpu == 0: return None
         avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used(), 0)
@@ -354,7 +424,7 @@ class Tasks:
             self.__mem_pressure += task.mem_pressure
             return task
         except: pass
-    
+
     def run(self, verbose=False):
         """
         Runs all the tasks in a smart order with many at once. Will not return until all tasks are done.
@@ -372,6 +442,7 @@ class Tasks:
             # Create basic variables and lock
             self.__error = None
             self.__conditional = Condition() # for locking access to Task.done, cpu_pressure, mem_pressure, next, last, log, and error
+            self.__running = set()
 
             # Setup log
             done_tasks = self.__process_log() if exists(self.logname) else ()
@@ -384,24 +455,14 @@ class Tasks:
             if verbose and len(done_tasks) > 0: print '-' * 80
             self.__rusagelog = open(self.rusage_log, 'a', 1) if self.rusage_log else None
 
-            # Calcualte set of first and last tasks
-            #overall_inputs  = set(chain.from_iterable(self.inputs[f] for f in self.overall_inputs()))
-            overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
+            # Calcualte the set of first and last tasks
+            self.__calc_next() # These are the first tasks
             overall_outputs = {self.outputs[f] for f in self.overall_outputs()}
-            if (len(overall_inputs) == 0 and len(self.generators) == 0) or (len(overall_outputs) == 0 and len(self.cleanups) == 0): raise ValueError('Tasks are cyclic')
-            for t in overall_inputs: t.all_after() # precompute these (while also checking for cyclic-ness)
-            for t in self.generators: t.all_after()
+            if len(overall_outputs) == 0 and len(self.cleanups) == 0: raise ValueError('Tasks are cyclic')
             self.__last = {t for t in overall_outputs if not t.done}
             self.__last.update(t for t in self.cleanups if not t.done)
-            first = self.generators | overall_inputs
-            changed = True
-            while changed:
-                changed = False
-                for t in first.copy():
-                    if t.done: first.remove(t); first.update(t.after); changed = True
-            self.__next = [(len(self.all_tasks) - len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
-            heapify(self.__next)
 
+            # Get the initial pressures
             self.__cpu_pressure = 0
             self.__mem_pressure = Tasks.__get_mem_used() + 1*MB # assume that the creation of threads and everything will add some extra pressure
 
@@ -440,6 +501,7 @@ class Tasks:
                 del self.__rusagelog
             if hasattr(self, '__cpu_pressure'): del self.__cpu_pressure
             if hasattr(self, '__mem_pressure'): del self.__mem_pressure
+            if hasattr(self, '__running'): del self.__running
             if hasattr(self, '__next'): del self.__next
             self.__conditional = None
             del self.__error
