@@ -282,7 +282,7 @@ class Tasks:
         print '=' * 80
         
         mem_sys = virtual_memory()
-        mem_task = Tasks.__get_mem_used()
+        mem_task = Tasks.__get_mem_used_by_tree()
         mem_press = self.__mem_pressure
         mem_avail = mem_sys.available - max(mem_press - mem_task, 0)
         print 'Memory (GB): System: %d / %d    Tasks: %d [%d], Avail: %d' % (
@@ -313,10 +313,9 @@ class Tasks:
                 if hasattr(task, 'pid') and task.pid:
                     try:
                         p = Process(task.pid)
-                        RSS, VMS = p.get_memory_info()
-                        real_mem = str(int(round(float(RSS) / GB)))
-                        timing = int(round(sum(p.get_cpu_times())))
-                        hours, mins, secs = timing // (60*60), timing // 60, timing % 60
+                        real_mem = str(int(round(float(Tasks.__get_mem_used_by_tree(p)) / GB)))
+                        t = int(round(Tasks.__get_time_used_by_tree(p)))
+                        hours, mins, secs = t // (60*60), t // 60, t % 60
                         timing = ('%d:%02d:%02d' % (hours, mins - hours * 60, secs)) if hours > 0 else ('%d:%02d' % (mins, secs))
                     except: pass
                 mem = str(int(round(float(task.mem_pressure) / GB)))
@@ -342,9 +341,9 @@ class Tasks:
         # Run the task, wait for it to finish
         err = None
         try:
-            tasks.__running.add(task)
+            self.__running.add(task)
             task._run(self.__rusagelog)
-            tasks.__running.remove(task)
+            self.__running.remove(task)
         except BaseException as e:
             err = e
 
@@ -364,18 +363,39 @@ class Tasks:
             self.__conditional.notify()
 
     @staticmethod
-    def __get_mem_used():
-        """Gets the memory used by this process and all its children"""
+    def __get_mem_used_by_tree(proc = this_proc):
+        """
+        Gets the memory used by a process and all its children (RSS). If the process is not
+        provided, this process is used. The argument must be a pid or a psutils.Process object.
+        Return value is in bytes.
+        """
         # This would be nice, but it turns out it crashes the whole program if the process finished between creating the list of children and getting the memory usage
         # Adding "if p.is_running()" would help but still have a window for the process to finish before getting the memory usage
-        #return sum((p.get_memory_info()[0] for p in this_proc.get_children(True)), this_proc.get_memory_info()[0])
-        mem = this_proc.get_memory_info()[0]
-        for p in this_proc.get_children(True):
+        #return sum((p.get_memory_info()[0] for p in proc.get_children(True)), proc.get_memory_info()[0])
+        if isinstance(proc, (int, long)): proc = Process(proc) # was given a PID
+        mem = proc.get_memory_info()[0]
+        for p in proc.get_children(True):
             try:
                 if p.is_running():
                     mem += p.get_memory_info()[0]
             except: pass
         return mem
+
+    @staticmethod
+    def __get_time_used_by_tree(proc = this_proc):
+        """
+        Gets the CPU time used by a process and all its children (user+sys). If the process is not
+        provided, this process is used. The argument must be a pid or a psutils.Process object.
+        Return values is in seconds.
+        """
+        if isinstance(proc, (int, long)): proc = Process(proc) # was given a PID
+        time = sum(proc.get_cpu_times())
+        for p in proc.get_children(True):
+            try:
+                if p.is_running():
+                    time += sum(p.get_cpu_times())
+            except: pass
+        return time
 
     def __calc_next(self):
         """Calculate the list of tasks that have all prerequisites completed."""
@@ -402,7 +422,7 @@ class Tasks:
             self.__calc_next()
         avail_cpu = self.max_tasks_at_once - self.__cpu_pressure
         if len(self.__next) == 0 or avail_cpu == 0: return None
-        avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used(), 0)
+        avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used_by_tree(), 0)
 
         # First do a fast to see if the very next task is doable
         # This should be very fast and will commonly be where the process ends
@@ -464,7 +484,7 @@ class Tasks:
 
             # Get the initial pressures
             self.__cpu_pressure = 0
-            self.__mem_pressure = Tasks.__get_mem_used() + 1*MB # assume that the creation of threads and everything will add some extra pressure
+            self.__mem_pressure = Tasks.__get_mem_used_by_tree() + 1*MB # assume that the creation of threads and everything will add some extra pressure
 
             # Set a signal handler
             try:
