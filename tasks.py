@@ -21,7 +21,6 @@ __all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
 
 from abc import ABCMeta, abstractmethod
 from functools import total_ordering
-#from itertools import chain
 
 from os import getcwd, getpid
 from os.path import exists, getmtime, join, normpath, realpath
@@ -49,7 +48,7 @@ TB = 1024*1024*1024*1024
 @total_ordering
 class Task:
     __metaclass__ = ABCMeta
-    def __init__(self, name, inputs, outputs, settings, wd = getcwd()):
+    def __init__(self, name, inputs=(), outputs=(), settings=(), wd=getcwd()):
         if len(outputs) == 0: raise ValueError('Each task must output at least one file')
         self.name = name
         self.wd = realpath(wd)
@@ -144,20 +143,27 @@ class Task:
             self.mem_pressure = mem
 
 class TaskUsingProcess(Task):
-    def __init__(self, cmd, inputs, outputs, settings, wd):
+    def __init__(self, cmd, inputs=(), outputs=(), settings=(), wd=getcwd(), stdin=None, stdout=None, stderr=None):
         if isinstance(cmd, basestring):
             import shlex
             cmd = shlex.split(cmd)
         else:
             cmd = [str(a) for a in cmd]
-        self.cmd = cmd
+        self.cmd    = cmd
+        self.stdin  = stdin
+        self.stdout = stdout
+        self.stderr = stderr
         Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
-    def _run(self, rusagelog=None): self._run_proc(Popen(self.cmd, cwd=self.wd), rusagelog)
+    def _run(self, rusagelog=None):
+        stdin  = open(self.stdin,  'r', 1) if isinstance(self.stdin,  basestring) else self.stdin
+        stdout = open(self.stdout, 'w', 1) if isinstance(self.stdout, basestring) else self.stdout
+        stderr = open(self.stderr, 'w', 1) if isinstance(self.stderr, basestring) else self.stderr
+        self._run_proc(Popen(self.cmd, cwd=self.wd, stdin=stdin, stdout=stdout, stderr=stderr), rusagelog)
 class TaskUsingPythonFunction(Task):
-    def __init__(self, target, args, kwargs, inputs, outputs, settings):
+    def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=()):
         if not callable(target): raise ValueError('Target is not callable')
         self.target = target
-        self.args = args
+        self.args   = args
         self.kwargs = kwargs
         kwargs = ""
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
@@ -169,33 +175,44 @@ class TaskUsingPythonProcess(Task):
     class Popen:
         """
         This is a Popen-like class for Python multiprocessing processes. It supports the pid
-        attribute, the wait() function, and changing the working directory.
+        attribute, the wait() function, and changing the working directory along with standard
+        inputs/outputs.
         """
-        def __init__(target, args, kwargs, wd):
-            if wd:
-                def _chdir_first():
-                    from os import chdir
-                    chdir(wd)
-                    target(*args, **kwargs)
-                p = PyProcess(_chdir_first)
-            else:
-                p = PyProcess(target=target, args=args, kwargs=kwargs)
+        @staticmethod
+        def _get_std(stdxxx, mode):
+            if isinstance(stdxxx, basestring):    return open(stdxxx, mode, 1)
+            elif isinstance(stdxxx, (int, long)): return os.fdopen(stdxxx, mode, 1)
+            return stdxxx # assume a file object
+        def __init__(target, args, kwargs, wd, stdin, stdout, stderr):
+            def _setup_pyproc(target, args, kwargs, wd, stdin, stdout, stderr):
+                import sys, os
+                from subprocess import STDOUT
+                os.chdir(wd)
+                if stdin:  sys.stdin  = TaskUsingPythonProcess.Popen._get_std(stdin,  'r')
+                if stdout: sys.stdout = TaskUsingPythonProcess.Popen._get_std(stdout, 'w')
+                if stderr: sys.stderr = TaskUsingPythonProcess.Popen._get_std(stderr, 'w') if stderr != STDOUT else sys.stdout
+                target(*args, **kwargs)
+            p = PyProcess(_setup_pyproc, (target, args, kwargs, wd, stdin, stdout, stderr))
             p.daemon = True
             p.start()
             self.proc = p
         @property
         def pid(self): return self.proc.pid
         def wait(self): self.proc.join(); return self.proc.exitcode
-    def __init__(self, target, args, kwargs, inputs, outputs, settings, wd):
+    def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=(), wd=getcwd(), stdin=None, stdout=None, stderr=None):
         if not callable(target): raise ValueError('Target is not callable')
         self.target = target
-        self.args = args
+        self.args   = args
         self.kwargs = kwargs
+        self.stdin  = stdin
+        self.stdout = stdout
+        self.stderr = stderr
         kwargs = ""
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
         Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings, wd)
-    def _run(self, rusagelog=None): self._run_proc(TaskUsingPythonProcess.Popen(self.target, self.args, self.kwargs, self.wd), rusagelog)
+    def _run(self, rusagelog=None):
+        self._run_proc(TaskUsingPythonProcess.Popen(self.target, self.args, self.kwargs, self.wd, self.stdin, self.stdout, sys.stderr), rusagelog)
 
 class Tasks:
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
@@ -213,22 +230,49 @@ class Tasks:
         self.all_tasks  = {} # all tasks, indexed by their string representation
         self.__conditional = None
 
-    def add(self, cmd, inputs, outputs, settings=(), wd=None):
+    def add(self, cmd, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
         """
-        Adds a new task.
-        The cmd should be an array of command line parts (with the first one being the program to run) or a command line string.
-        The task does not run until sometime after run() is called.
-        The inputs, outputs, and settings are used to determine dependencies between individual tasks and if individual tasks can be skipped or not
+        Adds a new task. The task does not run until sometime after run() is called.
+          cmd
+            an array of command line parts (with the first one being the program to run) or a
+            command line string
+          inputs, outputs, settings
+            lists/tuples of files or names of settings, used to determine dependencies between
+            individual tasks and if individual tasks can be skipped or not; each can be an empty
+            list implying the task generates files without any file input, performs cleanup tasks,
+            or only uses files
+          wd
+            the working directory of the task, by default it is the working directory of the whole
+            set of tasks (which defaults to the current working directory)
+          stdin, stdout, stderr
+            set the standard input and outputs for the task, can be a file object, file descriptor
+            (positive int) or a filename; stderr can also be subprocess.STDOUT if it will output to
+            stdout; by default they are the same as the this process
         """
         return self._add(TaskUsingProcess(cmd, inputs, outputs, settings, wd if wd else self.workingdir))
-    def add_func(self, target, args, kwargs, inputs, outputs, settings=(), wd=None, seperate_process = True):
+    def add_func(self, target, args=(), kwargs={}, inputs=(), outputs=(), settings=(), seperate_process=True, wd=None, stdin=None, stdout=None, stderr=None):
         """
-        Adds a new task that is a Python function call.
-        The target needs to be a callable object (function).
-        The args and kwargs are the list of arguments and dictionary of keyword arguments.
-        If seperate_process is False then the task is run in the current process, which reduces some overhead but does experience issues with working-directory and the global iterpreter lock.
-        The task does not run until sometime after run() is called.
-        The inputs, outputs, and settings are used to determine dependencies between individual tasks and if individual tasks can be skipped or not
+        Adds a new task that is a Python function call. The task does not run until sometime after
+        run() is called.
+          target
+            a callable object (e.g. a function)
+          args, kwargs
+            the list of arguments and dictionary of keyword arguments passed to the function
+          inputs, outputs, settings
+            lists/tuples of files or names of settings, used to determine dependencies between
+            individual tasks and if individual tasks can be skipped or not; each can be an empty
+            list implying the task generates files without any file input, performs cleanup tasks,
+            or only uses files
+          seperate_process
+            if False then the task is run in the current process, which reduces some overhead but
+            does experience issues with working-directory and the global iterpreter lock
+          wd (only if seperate_process is False)
+            the working directory of the task, by default it is the working directory of the whole
+            set of tasks (which defaults to the current working directory)
+          stdin, stdout, stderr (only if seperate_process is False)
+            set the standard input and outputs for the task, can be a file object, file descriptor
+            (positive int) or a filename; stderr can also be subprocess.STDOUT if it will output to
+            stdout; by default they are the same as the this process
         """
         if seperate_process:
             t = TaskUsingPythonProcess(target, args, kwargs, inputs, outputs, settings, wd if wd else self.workingdir)
@@ -333,7 +377,7 @@ class Tasks:
                 if task.mem_pressure <= mem_avail: mem += '*'
                 cpu = str(task.cpu_pressure) + 'x' if task.cpu_pressure >= 2 else ''
                 if min(task_max, task.cpu_pressure) <= (task_max - task_press): cpu += '*'
-                print '%4d %-60s %5s %4s' % (priority, text, mem, cpu) 
+                print '%4d %-60s %5s %4s' % (len(task.all_after()), text, mem, cpu) 
 
         print '=' * 80
     
@@ -400,17 +444,20 @@ class Tasks:
     def __calc_next(self):
         """Calculate the list of tasks that have all prerequisites completed."""
         # Must be called when __next is not locked in another thread (so either before any threads are started or self.__conditional is acquired)
-        overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
-        if len(overall_inputs) == 0 and len(self.generators) == 0: raise ValueError('Tasks are cyclic')
-        for t in overall_inputs: t.all_after() # precompute these (while also checking for cyclic-ness)
-        for t in self.generators: t.all_after()
-        first = self.generators | overall_inputs
+        first = {t for f in self.overall_inputs() for t in self.inputs[f]}
+        first |= self.generators
+        if len(first) == 0: raise ValueError('Tasks are cyclic')
+        for t in first: t.all_after() # precompute these (while also checking for cyclic-ness)
         changed = True
         while changed:
             changed = False
             for t in first.copy():
-                if t.done: first.remove(t); first.update(t.after); changed = True
-        self.__next = [(len(self.all_tasks) - len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
+                if t.done:
+                    first.remove(t)
+                    first |= t.after
+                    changed = True
+        num_tasks = len(self.all_tasks)
+        self.__next = [(num_tasks - len(t.all_after()), t) for t in first if all(b.done for b in t.before)]
         heapify(self.__next)
 
     def __next_task(self):
@@ -477,10 +524,10 @@ class Tasks:
 
             # Calcualte the set of first and last tasks
             self.__calc_next() # These are the first tasks
-            overall_outputs = {self.outputs[f] for f in self.overall_outputs()}
-            if len(overall_outputs) == 0 and len(self.cleanups) == 0: raise ValueError('Tasks are cyclic')
-            self.__last = {t for t in overall_outputs if not t.done}
-            self.__last.update(t for t in self.cleanups if not t.done)
+            last = {self.outputs[f] for f in self.overall_outputs()}
+            last |= self.cleanups
+            if len(last) == 0: raise ValueError('Tasks are cyclic')
+            self.__last = {t for t in last if not t.done}
 
             # Get the initial pressures
             self.__cpu_pressure = 0
