@@ -40,6 +40,32 @@ from psutil import Process, virtual_memory # not a built-in library
 
 this_proc = Process(getpid())
 
+def write_error(s):
+    from sys import stderr
+    from os import name
+
+    try:    is_tty = stderr.isatty()
+    except: is_tty = False
+    
+    if is_tty:
+        if name == "posix": stderr.write("\x1b[1;31m")
+        elif name == "nt":
+            from ctypes import windll, Structure, c_short, c_ushort, byref
+            k32 = windll.kernel32
+            handle = k32.GetStdHandle(-12)
+            class COORD(Structure):      _fields_ = [("X", c_short), ("Y", c_short)]
+            class SMALL_RECT(Structure): _fields_ = [("L", c_short), ("T", c_short), ("R", c_short), ("B", c_short)]
+            class CONSOLE_SCREEN_BUFFER_INFO(Structure): _fields_ = [("Size", COORD), ("CursorPos", COORD), ("Color", c_ushort), ("Rect", SMALL_RECT), ("MaxSize", COORD)]
+            csbi = CONSOLE_SCREEN_BUFFER_INFO()
+            k32.GetConsoleScreenBufferInfo(handle, byref(csbi))
+            prev = csbi.Color
+            k32.SetConsoleTextAttribute(handle, 12)
+    stderr.write(s)
+    if is_tty:
+        if name == "posix": stderr.write("\x1b[0m")
+        elif name == "nt":  k32.SetConsoleTextAttribute(handle, prev)
+    stderr.write("\n")
+
 KB = 1024
 MB = 1024*1024
 GB = 1024*1024*1024
@@ -180,8 +206,9 @@ class TaskUsingPythonProcess(Task):
         """
         @staticmethod
         def _get_std(stdxxx, mode):
+            from os import fdopen 
             if isinstance(stdxxx, basestring):    return open(stdxxx, mode, 1)
-            elif isinstance(stdxxx, (int, long)): return os.fdopen(stdxxx, mode, 1)
+            elif isinstance(stdxxx, (int, long)): return fdopen(stdxxx, mode, 1)
             return stdxxx # assume a file object
         def __init__(target, args, kwargs, wd, stdin, stdout, stderr):
             def _setup_pyproc(target, args, kwargs, wd, stdin, stdout, stderr):
@@ -345,7 +372,7 @@ class Tasks:
         print 'Tasks:       Running: %d [%d] / %d, Done: %d / %d, Upcoming: %d' % (task_run, task_press, task_max, task_done, task_total, task_next)
 
         print '-' * 80
-        if len(self.__running) == 0:
+        if task_run == 0:
             print 'Running: none (probably waiting for more memory)'
         else:
             print 'Running:'
@@ -382,28 +409,32 @@ class Tasks:
         print '=' * 80
     
     def __run(self, task):
-        # Run the task, wait for it to finish
-        err = None
-        try:
-            self.__running.add(task)
-            task._run(self.__rusagelog)
-            self.__running.remove(task)
-        except BaseException as e:
-            err = e
+        """
+        Actually run a task (called in a seperate thread). Waits for the task to complete and then
+        updates the information about errors, next, last, pressure, and running.
+        """
+        # Run the task and wait for it to finish
+        try: task._run(self.__rusagelog)
+        except Exception as e: err = e
+        else:                  err = None
 
         with self.__conditional:
-            if err: self.__error = err # Handle error
-            else:
-                task.done = True # done must be marked in a locked region to avoid race conditions
-                # Update subsequent tasks
-                for t in task.after:
-                    if not t.done and all(b.done for b in t.before):
-                        heappush(self.__next, (len(self.all_tasks) - len(t.all_after()), t))
-                self.__last.discard(task)
-                # Log completion
-                self.__log.write(strftime(Tasks.__time_format, gmtime(time()+1))+" "+str(task)+" \n") # add one second for slightly more reliability in determing if outputs are legal
+            if not self.__killing:
+                if err:
+                    write_error("Error in task: " + str(err))
+                    self.__error = True
+                else:
+                    task.done = True # done must be marked in a locked region to avoid race conditions
+                    # Update subsequent tasks
+                    for t in task.after:
+                        if not t.done and all(b.done for b in t.before):
+                            heappush(self.__next, (len(self.all_tasks) - len(t.all_after()), t))
+                    self.__last.discard(task)
+                    # Log completion
+                    self.__log.write(strftime(Tasks.__time_format, gmtime(time()+1))+" "+str(task)+" \n") # add one second for slightly more reliability in determing if outputs are legal
             self.__cpu_pressure -= min(self.max_tasks_at_once, task.cpu_pressure)
             self.__mem_pressure -= task.mem_pressure
+            self.__running.remove(task)
             self.__conditional.notify()
 
     @staticmethod
@@ -467,8 +498,8 @@ class Tasks:
         if len(self.__next) == 0 and len(self.__running) == 0:
             # Something went wrong... we have nothing running and nothing upcoming... recalulate the next list
             self.__calc_next()
+        if len(self.__next) == 0 or self.max_tasks_at_once == self.__cpu_pressure: return None
         avail_cpu = self.max_tasks_at_once - self.__cpu_pressure
-        if len(self.__next) == 0 or avail_cpu == 0: return None
         avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used_by_tree(), 0)
 
         # First do a fast to see if the very next task is doable
@@ -507,7 +538,8 @@ class Tasks:
 
         try:
             # Create basic variables and lock
-            self.__error = None
+            self.__error = False
+            self.__killing = False
             self.__conditional = Condition() # for locking access to Task.done, cpu_pressure, mem_pressure, next, last, log, and error
             self.__running = set()
 
@@ -540,22 +572,45 @@ class Tasks:
             except: pass
 
             # Keep running tasks in the tree until we have completed the root (which is self)
-            while len(self.__last) != 0:
-                # Get next task
-                with self.__conditional:
+            with self.__conditional:
+                while len(self.__last) != 0:
+                    # Get next task (or wait until all tasks or finished or an error is generated)
                     while len(self.__last) > 0 and not self.__error:
                         task = self.__next_task()
                         if task != None: break
-                        self.__conditional.wait(30) # wait until we have some available [the timeout is important because otherwise CTRL+C does not allow aborting, also it allows for the case where memory is freed up beyond our control]
-                    if len(self.__last) == 0: break
-                    if self.__error: raise self.__error
+                        self.__conditional.wait(30) # wait until we have some available [without the timeout CTRL+C does not work and we cannot see if memory is freed up on the system]
+                    if len(self.__last) == 0 or self.__error: break
 
-                # Run it
-                t = Thread(target=self.__run, args=(task,))
-                t.daemon = True
-                if verbose: print strftime(Tasks.__time_format) + " Running " + str(task)
-                t.start()
-                sleep(0) # make sure it starts 
+                    # Run it
+                    self.__running.add(task)
+                    t = Thread(target=self.__run, args=(task,))
+                    t.daemon = True
+                    if verbose: print strftime(Tasks.__time_format) + " Running " + str(task)
+                    t.start()
+                    sleep(0) # make sure it starts
+
+                # There was an error, let running tasks finish
+                if self.__error and len(self.__running) > 0:
+                    write_error("Waiting for other tasks to finish running.\nYou can terminate them by doing a CTRL+C.")
+                    while len(self.__running) > 0:
+                        self.__conditional.wait(60) # wait until a task stops [without the timeout CTRL+C does not work]
+
+        except KeyboardInterrupt:
+
+            # Terminate and kill tasks
+            write_error("Terminating running tasks")
+            with self.__conditional:
+                self.__killing = True
+                for p in (Process(t.pid) for t in self.__running if hasattr(t, 'pid') and t.pid):
+                    try: p.terminate()
+                    except: pass
+                secs = 0
+                while len(self.__running) > 0 and secs < 10:
+                    self.__conditional.wait(1)
+                    secs += 1
+                for p in (Process(t.pid) for t in self.__running if hasattr(t, 'pid') and t.pid):
+                    try: p.kill()
+                    except: pass
 
         finally:
             # Cleanup
@@ -572,6 +627,7 @@ class Tasks:
             if hasattr(self, '__next'): del self.__next
             self.__conditional = None
             del self.__error
+            del self.__killing
 
     def __process_log(self):
         with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
