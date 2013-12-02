@@ -17,6 +17,7 @@ and man 2 getrusage for more information). It will not record Python function ta
 in a seperate process. On some forms of *nix the ru_maxrss and other fields will always be 0.
 """
 
+# Only yhe Tasks class along with the byte-size constants are exported
 __all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
 
 from abc import ABCMeta, abstractmethod
@@ -41,6 +42,13 @@ from psutil import Process, virtual_memory # not a built-in library
 this_proc = Process(getpid())
 
 def write_error(s):
+    """
+    Writes out an error message to stderr in red text. This is done so that the
+    error messages from the Tasks system can be easily distinguished from the
+    errors from the underlying commands being run. If we cannot change the text
+    color (not supported by OS or redirecting to a file) then just the string is
+    written.
+    """
     from sys import stderr
     from os import name
 
@@ -66,6 +74,8 @@ def write_error(s):
         elif name == "nt":  k32.SetConsoleTextAttribute(handle, prev)
     stderr.write("\n")
 
+# These constants are for when giving a certain amount of memory pressure to a
+# task. So 1 GB can be easily written as 1*GB.
 KB = 1024
 MB = 1024*1024
 GB = 1024*1024*1024
@@ -73,23 +83,26 @@ TB = 1024*1024*1024*1024
 
 @total_ordering
 class Task:
+    """
+    Abstract Task class representing a single Task to be run.
+    """
     __metaclass__ = ABCMeta
-    def __init__(self, name, inputs=(), outputs=(), settings=(), wd=getcwd()):
-        if len(outputs) == 0: raise ValueError('Each task must output at least one file')
-        self.name = name
-        self.wd = realpath(wd)
+    def __init__(self, name, inputs=(), outputs=(), settings=(), wd=None):
+        #if len(outputs) == 0: raise ValueError('Each task must output at least one file')
+        self.name = name         # name of this task
+        self.wd = realpath(wd) if wd != None else getcwd() # working directory
         if isinstance(inputs, basestring): inputs = (inputs,)
         if isinstance(outputs, basestring): outputs = (outputs,)
         if isinstance(settings, basestring): settings = (settings,)
         self.inputs = frozenset(realpath(join(self.wd, f)) for f in inputs)
         self.outputs = frozenset(realpath(join(self.wd, f)) for f in outputs)
         self.settings = frozenset(settings)
-        self.before = set()
-        self.after = set()
-        self.__all_after = None
-        self.done = False
-        self.cpu_pressure = 1
-        self.mem_pressure = 1*MB
+        self.before = set()      # tasks that come before this task
+        self.after = set()       # tasks that come after this task
+        self.__all_after = None  # the cache for the all_after function
+        self.done = False        # not done yet
+        self.cpu_pressure = 1    # default number of CPUs is 1
+        self.mem_pressure = 1*MB # default memory pressure is 1 MB
     def __eq__(self, other): return type(self) == type(other) and self.name == other.name
     def __lt__(self, other): return type(self) <  type(other) or  type(self) == type(other) and self.name < other.name
     def __hash__(self):      return hash(self.name+str(type(self)))
@@ -101,7 +114,7 @@ class Task:
         Starts the task and waits, throws exceptions if something goes wrong.
         This is in abstract method and is implemented in each derived class.
         """
-        pass
+        pass # abstract method does nothing
     def _run_proc(self, p, rusagelog=None):
         """
         The _run method for seperate process systems. The argument p is a Popen-like object that has
@@ -137,6 +150,7 @@ class Task:
             self.__all_after = frozenset(after)
         return self.__all_after
     def _clear_cached_all_after(self):
+        """Clears the cached results of "all_after" recursively."""
         if self.__all_after:
             self.__all_after = None
             for b in self.before: a._clear_cached_all_after()
@@ -169,7 +183,15 @@ class Task:
             self.mem_pressure = mem
 
 class TaskUsingProcess(Task):
-    def __init__(self, cmd, inputs=(), outputs=(), settings=(), wd=getcwd(), stdin=None, stdout=None, stderr=None):
+    """
+    A single Task that runs using a seperate process. 
+    """
+    def __init__(self, cmd, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
+        """
+        Create a new Task using a process. The cmd can either be a command-line
+        string or a iterable of command-line parts. The stdin/stdout/stderr can
+        be strings (for files), a file-like object, or None for default.
+        """
         if isinstance(cmd, basestring):
             import shlex
             cmd = shlex.split(cmd)
@@ -186,7 +208,16 @@ class TaskUsingProcess(Task):
         stderr = open(self.stderr, 'w', 1) if isinstance(self.stderr, basestring) else self.stderr
         self._run_proc(Popen(self.cmd, cwd=self.wd, stdin=stdin, stdout=stdout, stderr=stderr), rusagelog)
 class TaskUsingPythonFunction(Task):
+    """
+    Create a new Task that calls a Python function in the same process.
+    THIS IS UNTESTED
+    """
     def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=()):
+        """
+        The target must be a callable object (like a function). The args and
+        kwargs are a tuple and dictionary that are given to the target function
+        as the arguments and keyword arguments.
+        """
         if not callable(target): raise ValueError('Target is not callable')
         self.target = target
         self.args   = args
@@ -198,6 +229,10 @@ class TaskUsingPythonFunction(Task):
     # We don't actually need to spawn a thread since there is a thread spawned essentially just for _run()
     def _run(self, rusagelog=None): self.target(*self.args, **self.kwargs)
 class TaskUsingPythonProcess(Task):
+    """
+    Create a new Task that calls a Python function in a different process.
+    THIS IS UNTESTED
+    """
     class Popen:
         """
         This is a Popen-like class for Python multiprocessing processes. It supports the pid
@@ -226,7 +261,13 @@ class TaskUsingPythonProcess(Task):
         @property
         def pid(self): return self.proc.pid
         def wait(self): self.proc.join(); return self.proc.exitcode
-    def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=(), wd=getcwd(), stdin=None, stdout=None, stderr=None):
+    def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
+        """
+        The target must be a callable object (like a function). The args and
+        kwargs are a tuple and dictionary that are given to the target function
+        as the arguments and keyword arguments. The stdin/stdout/stderr can be
+        strings (for files), a file-like object, or None for default.
+        """
         if not callable(target): raise ValueError('Target is not callable')
         self.target = target
         self.args   = args
@@ -242,9 +283,30 @@ class TaskUsingPythonProcess(Task):
         self._run_proc(TaskUsingPythonProcess.Popen(self.target, self.args, self.kwargs, self.wd, self.stdin, self.stdout, sys.stderr), rusagelog)
 
 class Tasks:
+    """
+    Represents a set of tasks that need to be run, possibly with dependencies on
+    each other. The tasks are run as efficiently as possible.
+    """
     __time_format = '%Y-%m-%d %H:%M:%S' # static, constant
 
     def __init__(self, log, settings={}, max_tasks_at_once=None, workingdir=None, rusage_log=None):
+        """
+        Create a new set of Tasks.
+          log
+            the filepath to a file where to read/write the log of completed
+            tasks to
+          settings
+            the setting names and their values for this run as a dictionary
+          max_tasks_at_once
+            the maximum number of tasks to run at one time, defaults to the
+            number of processors available
+          workingdir
+            the default working directory for all of the tasks, defaults to the
+            current working directory
+          rusage_log
+            only provide if on *nix - if provided the memory and time usage of
+            every task will be logged to the given file
+        """
         self.workingdir = realpath(workingdir) if workingdir else getcwd()
         self.max_tasks_at_once = int(max_tasks_at_once) if max_tasks_at_once else cpu_count()
         self.settings = settings
@@ -313,12 +375,15 @@ class Tasks:
         # Updates all before and after lists as well
         if len(task.settings - self.settings.viewkeys()) > 0: raise ValueError('Task had settings that were not originally specified')
         if not task.inputs.isdisjoint(task.outputs): raise ValueError('A task cannot output a file that it needs for input')
+        # A "generator" task is one with inputs, a "cleanup" task is one with outputs
         is_generator, is_cleanup = len(task.inputs) == 0, len(task.outputs) == 0
-        new_inputs  = task.inputs  | (self.overall_inputs() - task.outputs)
-        new_outputs = task.outputs | (self.overall_outputs() - task.inputs)
+        new_inputs  = task.inputs  | (self.overall_inputs() - task.outputs) # input files never seen before
+        new_outputs = task.outputs | (self.overall_outputs() - task.inputs) # output files never seen before
+        # Check for the creation of a cyclic dependency in tasks
         if not new_inputs.isdisjoint(new_outputs) or \
             (len(new_inputs) == 0 and not is_generator and len(self.generators) == 0) or \
             (len(new_outputs) == 0 and not is_cleanup and len(self.cleanups) == 0): raise ValueError('Task addition will cause a cycle in dependencies')
+        # Add the task to the graph
         if is_cleanup: self.cleanups.add(task)
         else:
             for o in task.outputs:
@@ -343,6 +408,9 @@ class Tasks:
     def overall_inputs(self):  return self.inputs.viewkeys() - self.outputs.viewkeys() #set(self.inputs.iterkeys()) - set(self.outputs.iterkeys())
     def overall_outputs(self): return self.outputs.viewkeys() - self.inputs.viewkeys() #set(self.outputs.iterkeys()) - set(self.inputs.iterkeys())
     def __check_acyclic(self):
+        """
+        Run a thorough check for cyclic dependencies. Not actually used anywhere.
+        """
         if len(self.outputs) == 0 and len(self.inputs) == 0: return
         overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
         if (len(overall_inputs) == 0 and len(self.generators) == 0) or (len(self.overall_outputs()) == 0 and len(self.cleanups) == 0): raise ValueError('Tasks are cyclic')
