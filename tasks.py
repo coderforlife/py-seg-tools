@@ -371,6 +371,10 @@ class Tasks:
             t = TaskUsingPythonFunction(target, args, kwargs, inputs, outputs, settings)
         return self._add(t)
     def _add(self, task):
+        """
+        Actual add function. Checks the task and makes sure the task is valid for this set of tasks.
+        Updates the task graph (before and after links for this and other tasks).
+        """
         # Processes the input and output information from the task
         # Updates all before and after lists as well
         if len(task.settings - self.settings.viewkeys()) > 0: raise ValueError('Task had settings that were not originally specified')
@@ -404,13 +408,17 @@ class Tasks:
                     self.outputs[i]._clear_cached_all_after()
         self.all_tasks[str(task)] = task
         return task
-    def find(self, cmd): return self.all_tasks.get(cmd)
-    def overall_inputs(self):  return self.inputs.viewkeys() - self.outputs.viewkeys() #set(self.inputs.iterkeys()) - set(self.outputs.iterkeys())
-    def overall_outputs(self): return self.outputs.viewkeys() - self.inputs.viewkeys() #set(self.outputs.iterkeys()) - set(self.inputs.iterkeys())
+    def find(self, cmd):
+        """Find a task from the string representation of the task."""
+        return self.all_tasks.get(cmd)
+    def overall_inputs(self):
+        """Get the overall inputs required from the entire set of tasks."""
+        return self.inputs.viewkeys() - self.outputs.viewkeys() #set(self.inputs.iterkeys()) - set(self.outputs.iterkeys())
+    def overall_outputs(self):
+        """Get the overall outputs generated from the entire set of tasks."""
+        return self.outputs.viewkeys() - self.inputs.viewkeys() #set(self.outputs.iterkeys()) - set(self.inputs.iterkeys())
     def __check_acyclic(self):
-        """
-        Run a thorough check for cyclic dependencies. Not actually used anywhere.
-        """
+        """Run a thorough check for cyclic dependencies. Not actually used anywhere."""
         if len(self.outputs) == 0 and len(self.inputs) == 0: return
         overall_inputs  = {t for f in self.overall_inputs() for t in self.inputs[f]}
         if (len(overall_inputs) == 0 and len(self.generators) == 0) or (len(self.overall_outputs()) == 0 and len(self.cleanups) == 0): raise ValueError('Tasks are cyclic')
@@ -418,6 +426,13 @@ class Tasks:
         for t in self.generators: t.all_after()
 
     def display_stats(self, signum = 0, frame = None):
+        """
+        Writes to standard out a whole bunch of statistics about the current status of the tasks. Do
+        not call this except while the tasks are running. It is automatically registered to the USR1
+        signal on POSIX systems. The signum and frame arguments are not used but are required to be
+        present for the signal handler.
+        """
+        
         print '=' * 80
         
         mem_sys = virtual_memory()
@@ -478,8 +493,8 @@ class Tasks:
     
     def __run(self, task):
         """
-        Actually run a task (called in a seperate thread). Waits for the task to complete and then
-        updates the information about errors, next, last, pressure, and running.
+        Actually runs a task. This function is called as a seperate thread. Waits for the task to
+        complete and then updates the information about errors, next, last, pressure, and running.
         """
         # Run the task and wait for it to finish
         try: task._run(self.__rusagelog)
@@ -500,9 +515,12 @@ class Tasks:
                     self.__last.discard(task)
                     # Log completion
                     self.__log.write(strftime(Tasks.__time_format, gmtime(time()+1))+" "+str(task)+" \n") # add one second for slightly more reliability in determing if outputs are legal
+            # Remove CPU and memory pressures of this task
             self.__cpu_pressure -= min(self.max_tasks_at_once, task.cpu_pressure)
             self.__mem_pressure -= task.mem_pressure
+            # This task is no longer running
             self.__running.remove(task)
+            # Notify waiting threads
             self.__conditional.notify()
 
     @staticmethod
@@ -541,8 +559,17 @@ class Tasks:
         return time
 
     def __calc_next(self):
-        """Calculate the list of tasks that have all prerequisites completed."""
-        # Must be called when __next is not locked in another thread (so either before any threads are started or self.__conditional is acquired)
+        """
+        Calculate the list of tasks that have all prerequisites completed. This also verifies that
+        the tasks are truly acyclic (the add() function only does a minimal check). Must be called
+        when __next is not locked in another thread (so either before any threads are started or
+        self.__conditional is acquired).
+
+        The next list is not returned, but stored in self.__next.
+
+        We recalculate the next list at the very beginning and periodically when going through the
+        list of tasks just to make sure the list didn't get corrupted or something.
+        """
         first = {t for f in self.overall_inputs() for t in self.inputs[f]}
         first |= self.generators
         if len(first) == 0: raise ValueError('Tasks are cyclic')
@@ -560,18 +587,24 @@ class Tasks:
         heapify(self.__next)
 
     def __next_task(self):
-        """Get the next task to be run based on priority and memory/CPU usage"""
-        # Must be called while self.__conditional is acquired
+        """
+        Get the next task to be run based on priority and memory/CPU usage. Updates the CPU and
+        memory pressures assuming that task will be run.
+
+        Must be called while self.__conditional is acquired.
+        """
 
         if len(self.__next) == 0 and len(self.__running) == 0:
             # Something went wrong... we have nothing running and nothing upcoming... recalulate the next list
             self.__calc_next()
         if len(self.__next) == 0 or self.max_tasks_at_once == self.__cpu_pressure: return None
+
+        # Get available CPU and memory
         avail_cpu = self.max_tasks_at_once - self.__cpu_pressure
         avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used_by_tree(), 0)
 
-        # First do a fast to see if the very next task is doable
-        # This should be very fast and will commonly be where the process ends
+        # First do a fast check to see if the very next task is doable
+        # This should be very fast and will commonly be where the checking ends
         priority, task = self.__next[0]
         needed_cpu = min(self.max_tasks_at_once, task.cpu_pressure)
         if needed_cpu <= avail_cpu and task.mem_pressure <= avail_mem:
@@ -585,7 +618,7 @@ class Tasks:
         try:
             priority, task, i = min((priority, task, i) for i, (priority, task) in enumerate(self.__next) if min(self.max_tasks_at_once, task.cpu_pressure) <= avail_cpu and task.mem_pressure <= avail_mem)
             self.__next[i] = self.__next.pop() # O(1)
-            heapify(self.__next) # O(n) [could be made O(log(N)) with undocumented _siftup/_siftdown]
+            heapify(self.__next) # O(n) [TODO: could be made O(log(N)) with undocumented _siftup/_siftdown]
             self.__cpu_pressure += min(self.max_tasks_at_once, task.cpu_pressure)
             self.__mem_pressure += task.mem_pressure
             return task
@@ -698,6 +731,11 @@ class Tasks:
             del self.__killing
 
     def __process_log(self):
+        """
+        This looks at the previous log file and determines which commands do not need to be run this
+        time through. This checks for changes in the commands themselves, when the commands were run
+        relative to their output files, and more.
+        """
         with open(self.logname, 'r+') as log: lines = [line.strip() for line in log]
         lines = [line for line in lines if len(line) != 0]
         #comments = [line for line in lines if line[0] == '#']
