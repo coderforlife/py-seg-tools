@@ -1,9 +1,8 @@
-= Future Programs =
-png2mha, mha2png, png2png, mha2mha, mrc2mrc: trivial copy-paste with a few modifications
-
 = Internals =
 MRC class:
  * improve, fix, and expand the [] slice usage
+Metafile (MHA/MHD):
+ * make a little more robust (see inline TODOs)
 create_labels:
  * support using the same labels across slices
  * support running connected components code on BW data (scipy.ndimage.label)
