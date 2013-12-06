@@ -243,9 +243,9 @@ def decompress(input, type=None):
     elif type == 'zlib':
         header = unpack('>H', input[:2])[0]
         method = (header >>  8) & 0xF
-        windowsize = (header >> 12) & 0xF
+        windowsize = ((header >> 12) & 0xF) + 8
         fdict  = (header & 0x20) != 0
-        if method != 8 or window == 8 or fdict: raise IOError('Unknown compression method')
+        if method != 8 or windowsize > MAX_WBITS or fdict: raise IOError('Unknown compression method')
         if header % 31 != 0: raise IOError('Header corrupted')
         s = zdecompress(input[2:-4], -windowsize)
         a32 = unpack('>I', input[-4:])[0]
@@ -568,11 +568,11 @@ class GzipFile(BufferedIOBase):
             header = self._read_base(2)
             header = unpack('>H', header)[0]
             method = (header >>  8) & 0xF
-            windowsize = (header >> 12) & 0xF
+            windowsize = ((header >> 12) & 0xF) + 8
             fdict  = (header & 0x20) != 0
             #flevel = (header >>  6) & 0x3
             #fcheck = (header & 0x1F)
-            if method != 8 or window >= 8 or fdict: raise IOError('Unknown compression method')
+            if method != 8 or windowsize > MAX_WBITS or fdict: raise IOError('Unknown compression method')
             if header % 31 != 0: raise IOError('Header corrupted')
         self.decompressor = decompressobj(-windowsize)
         self._new_member = False
