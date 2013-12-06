@@ -1,46 +1,59 @@
 #!/usr/bin/env python
 
 from utils import check_reqs
-check_reqs(SimpleITK = False)
+check_reqs()
 
 """
-Converts an MRC file to a PNG stack. Runs either as a command line program or as
-an importable function.
+Converts an MRC file to an image stack. Runs either as a command line program or
+as an importable function.
 """
 
-def mrc2png(mrc, png_dir, indxs = None, basename = "%04d.png", flip = False, sigma = 0.0):
+def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, flip = False, sigma = 0.0):
     """
-    Converts an MRC file to a PNG stack
+    Converts an MRC file to an image stack
 
     Arguments:
     mrc      -- the MRC file (as MRC object) or filepath (as a string)
-    png_dir  -- the directory to save PNGs to
+    out_dir  -- the directory to save the stack to
     
     Optional Arguments:
     indxs    -- the indices of slices to save, default is to use all slices
-    basename -- the template name to use for PNGs, needs to have a %d to be replaced by slice number, default is "%04d.png"
+    basename -- the template name to use for images, needs to have a %d to be replaced by slice number, default is "%04d.png"
+    mode     -- output mode, one of:
+                    'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
+                    'label' to output a consecutively numbered image for label data
+                    None (default) to perform no conversion
     flip     -- if True then each image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
-    from images import MRC, flip_up_down, gauss_blur, sp_save
+    from images import MRC, flip_up_down, gauss_blur, float_image, create_labels, imsave
     from utils import make_dir
 
+    float_it = False
+    label_it = False
+    if mode == 'float': float_it = True
+    elif mode == 'label': label_it = True
+    elif mode != None: raise ValueError("Mode must be 'float', 'label', or None")
     if isinstance(mrc, basestring): mrc = MRC(mrc)
-    if not make_dir(png_dir): raise IOError("Unable to create directory")
+    if not make_dir(out_dir): raise IOError("Unable to create output directory")
     flip = bool(flip)
     sigma = float(sigma)
     if indxs == None:
         for i, sec in enumerate(mrc):
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
-            sp_save(join(png_dir, basename % i), sec)
+            if float_it: sec = float_image(sec)
+            elif label_it: sec = create_labels(sec)
+            imsave(join(out_dir, basename % i), sec)
     else:
         for i in indxs:
             sec = mrc[i]
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
-            sp_save(join(png_dir, basename % i), sec)
+            if float_it: sec = float_image(sec)
+            elif label_it: sec = create_labels(sec)
+            imsave(join(out_dir, basename % i), sec)
 
 def help_msg(err = 0, msg = None):
     from os.path import basename
@@ -53,13 +66,17 @@ def help_msg(err = 0, msg = None):
     print "Usage:"
     print tw.fill("  %s [args] input.mrc output_directory" % basename(argv[0]))
     print ""
+    print tw.fill("Supports numerous file formats based on extension. Not all types can be saved to with all options.")
+    print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -b  --base=     The base filename base to use, needs to have a %d to replace with slice number, defaults to '%04d.png'")
+    print tw.fill("  -e  --ext=      The extension (type) of the files to save, defaults to 'png'")
+    print tw.fill("  -b  --base=     The base filename (without extension) to use, needs to have a %d to replace with slice number, defaults to '%04d'")
     print tw.fill("  -x #-#          The x coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
     print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     exit(err)
         
@@ -67,6 +84,7 @@ if __name__ == "__main__":
     from os.path import realpath
     from sys import argv
     from getopt import getopt, error as getopt_error
+    from math import isnan
 
     from utils import make_dir
     from images import MRC
@@ -74,7 +92,7 @@ if __name__ == "__main__":
     
     if len(argv) < 2: help_msg(1)
     
-    try: opts, args = getopt(argv[1:], "hfb:x:y:z:s:", ["help", "flip", "base=", "sigma="])
+    try: opts, args = getopt(argv[1:], "hfe:b:x:y:z:m:s:", ["help", "flip", "ext=", "base=", "mode=", "sigma="])
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
@@ -82,7 +100,9 @@ if __name__ == "__main__":
     x = None
     y = None
     z = None
+    ext = None
     basename = None
+    mode = None
     sigma = None
     for o,a in opts:
         if o == "-h" or o == "--help":
@@ -90,6 +110,9 @@ if __name__ == "__main__":
         elif o == "-f" or o == "--flip":
             if flip: help_msg(2, "Must be only one flip argument")
             flip = True
+        elif o == "-e" or o == "--ext":
+            if basename != None: help_msg(2, "Must be only one extension argument")
+            ext = a
         elif o == "-b" or o == "--base":
             if basename != None: help_msg(2, "Must be only one basename argument")
             try:
@@ -121,6 +144,10 @@ if __name__ == "__main__":
             y = y.split("-")
             if len(y) != 2 or not y[0].isdigit() or not y[1].isdigit(): help_msg(2, "Invalid y argument supplied")
             y = (int(y[0]), int(y[1]))
+        elif o == "-m" or o == "--mode":
+            if mode != None: help_msg(2, "Must be only one mode argument")
+            mode = a
+            if mode != 'float' and mode != 'label': help_msg(2, "Mode must be either 'float' or 'label'")
         elif o == "-s" or o == "--sigma":
             if sigma != None: help_msg(2, "Must be only one sigma argument")
             try: sigma = float(a)
@@ -128,16 +155,17 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
 
     # Make sure paths are good
-    if len(args) != 2: help_msg(2, "You need to provide an MRC and PNG output directory as arguments")
+    if len(args) != 2: help_msg(2, "You need to provide an MRC and image output directory as arguments")
     mrc_filename = realpath(args[0])
     try: mrc = MRC(mrc_filename, readonly=True)
     except BaseException as e: help_msg(2, "Failed to open MRC file: " + str(e))
-    png_dir = realpath(args[1])
-    if not make_dir(png_dir): help_msg(2, "PNG output directory already exists as regular file, choose another directory")
+    out_dir = realpath(args[1])
+    if not make_dir(out_dir): help_msg(2, "Output directory already exists as regular file, choose another directory")
 
     # Check other arguments, getting values for optional args, etc.
+    if ext      == None: ext = "png"
+    if basename == None: basename = "%04d"
     if sigma    == None: sigma = 0.0
-    if basename == None: basename = "%04d.png"
     if x == None: x = (0, mrc.nx - 1)
     elif x[0] < 0 or x[1] < x[0] or x[1] < mrc.nx: help_msg(2, "Invalid x argument supplied")
     if y == None: y = (0, mrc.ny - 1)
@@ -145,4 +173,4 @@ if __name__ == "__main__":
     zs = (min(z), max(z)) if z else (0, mrc.nz - 1)
 
     # Do the actual work!
-    mrc2png(mrc.view(x, y, zs), png_dir, z, basename, flip, sigma)
+    mrc2stack(mrc.view(x, y, zs), out_dir, z, basename+"."+ext, mode, flip, sigma)

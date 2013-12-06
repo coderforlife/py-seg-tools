@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 
 from utils import check_reqs
-check_reqs(PIL = False)
+check_reqs()
 
 """
-Converts an MHA stack to an MRC file. Runs either as a command line program or
+Converts an image stack to an MRC file. Runs either as a command line program or
 as an importable function.
 """
 
-def mha2mrc(mhas, mrc, flip = False, sigma = 0.0):
+def stack2mrc(stack, mrc, flip = False, sigma = 0.0):
     """
-    Converts an MHA stack to an MRC file. Returns the new MRC file object.
+    Converts an image stack to an MRC file. Returns the new MRC file object.
 
     Arguments:
-    mhas     -- the MHAs to read, an iterable of file names
+    stack    -- the images to read, an iterable of file names
     mrc      -- the MRC filename to save to
     
     Optional Arguments:
@@ -21,25 +21,25 @@ def mha2mrc(mhas, mrc, flip = False, sigma = 0.0):
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
-    from images import itk_read, MRC, flip_up_down, gauss_blur
+    from images import imread, MRC, flip_up_down, gauss_blur
 
-    mhas = iter(mhas)
+    stack = iter(stack)
     flip = bool(flip)
     sigma = float(sigma)
 
     if flip:
-        read = (lambda f: gauss_blur(flip_up_down(itk_read(x)), sigma)) if sigma != 0.0 else (lambda f: flip_up_down(itk_read(x)))
+        read = (lambda f: gauss_blur(flip_up_down(imread(x)), sigma)) if sigma != 0.0 else (lambda f: flip_up_down(imread(x)))
     elif sigma != 0.0:
-        read = lambda f: gauss_blur(itk_read(x), sigma)
+        read = lambda f: gauss_blur(imread(x), sigma)
     else:
-        read = itk_read
+        read = imread
 
     try:
-        mha = read(mhas.next())
-    except StopIteration: raise ValueError("Must provide at least one MHA")
-    mrc = MRC(mrc, nx=mha.shape[1], ny=mha.shape[0], dtype=mha.dtype)
-    mrc.append(mha)
-    mrc.append_all((read(mha) for mha in mhas)) # will skip the first one
+        img = read(stack.next())
+    except StopIteration: raise ValueError("Must provide at least one image")
+    mrc = MRC(mrc, nx=img.shape[1], ny=img.shape[0], dtype=img.dtype)
+    mrc.append(img)
+    mrc.append_all((read(img) for img in stack)) # will skip the first one
     mrc.write_header()
     return mrc
 
@@ -52,9 +52,11 @@ def help_msg(err = 0, msg = None):
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
-    print tw.fill("  %s [args] input1.mha [input2.mha ...] output.mrc" % basename(argv[0]))
+    print tw.fill("  %s [args] input1.png [input2.png ...] output.mrc" % basename(argv[0]))
     print ""
-    print tw.fill("You may also use a glob-like syntax for any of the input files, such as 'folder/*.mha' or '[0-9][0-9][0-9].mha'")
+    print tw.fill("You may also use a glob-like syntax for any of the input files, such as 'folder/*.png' or '[0-9][0-9][0-9].png'")
+    print ""
+    print tw.fill("Supports numerous file formats. MHA/MHD files must have the proper file extension. Other files will have their data examined to determine type. All images must have the same dimensions and pixel format. Not all pixel formats all supported.")
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
@@ -90,22 +92,22 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
 
     # Make sure paths are good
-    if len(args) < 2: help_msg(2, "You need to provide at least one MHA path/glob and an MRC as arguments")
+    if len(args) < 2: help_msg(2, "You need to provide at least one image path/glob and an MRC as arguments")
     mrc_filename = realpath(args[-1])
-    mhas = []
-    for mha in args[:-1]:
-        mha = realpath(mha)
-        if not isfile(mha):
-            if '*' in mha or '?' in mha or ('[' in mha and ']' in mha):
-                mhas.extend(sorted(iglob(mha)))
+    stack = []
+    for img in args[:-1]:
+        img = realpath(img)
+        if not isfile(img):
+            if '*' in img or '?' in img or ('[' in img and ']' in img):
+                stack.extend(sorted(iglob(img)))
             else:
-                help_msg(2, "MHA file does not exist: %s", mha)
+                help_msg(2, "Image file does not exist: %s", img)
         else:
-            mhas.append(mha)
-    if len(mhas) == 0: help_msg(2, "No MHAs were found using the given arguments")
+            stack.append(img)
+    if len(stack) == 0: help_msg(2, "No images were found using the given arguments")
 
     # Get default values for optional args
     if sigma == None: sigma = 0.0
 
     # Do the actual work!
-    mha2mrc(mhas, mrc_filename, flip, sigma)
+    stack2mrc(stack, mrc_filename, flip, sigma)
