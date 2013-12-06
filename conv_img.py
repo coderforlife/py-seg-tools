@@ -4,17 +4,17 @@ from utils import check_reqs
 check_reqs()
 
 """
-Converts PNG file to an MHA file. Runs either as a command line program or as an
-importable function.
+Converts an image file to a new format, possibly changing the image 'mode'. Runs
+either as a command line program or as an importable function.
 """
 
-def png2mha(png, mha, mode = None, flip = False, sigma = 0.0):
+def conv_img(input, output, mode = None, flip = False, sigma = 0.0):
     """
-    Converts a PNG file to an MHA file
+    Converts an image file.
 
     Arguments:
-    png      -- the input PNG filepath
-    mha      -- the otuput MHA filepath
+    input    -- the input filepath
+    output   -- the otuput filepath
     
     Optional Arguments:
     mode     -- output mode, one of:
@@ -24,19 +24,19 @@ def png2mha(png, mha, mode = None, flip = False, sigma = 0.0):
     flip     -- if True then image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
-    from images import sp_read, flip_up_down, gauss_blur, float_image, create_labels, itk_save
+    from images import imread, flip_up_down, gauss_blur, float_image, create_labels, imsave
 
     float_it = False
     label_it = False
     if mode == 'float': float_it = True
     elif mode == 'label': label_it = True
     elif mode != None: raise ValueError("Mode must be 'float', 'label', or None")
-    im = sp_read(png)
+    im = imread(input)
     if flip: sec = flip_up_down(sec)
     if sigma: im = gauss_blur(im, sigma)
     if float_it: im = float_image(im)
     elif label_it: im = create_labels(im)
-    itk_save(mha, im)
+    imsave(output, im)
 
 def help_msg(err = 0, msg = None):
     from os.path import basename
@@ -47,7 +47,9 @@ def help_msg(err = 0, msg = None):
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
-    print tw.fill("  %s [args] input.png output.mha" % basename(argv[0]))
+    print tw.fill("  %s [args] input.xxx output.xxx" % basename(argv[0]))
+    print ""
+    print tw.fill("Supports numerous file formats based on extension. The extension should be accurate to the filetype otherwise it may not work.")
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
@@ -89,13 +91,14 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
 
     # Make sure path are good
-    if len(args) != 2: help_msg(2, "You need to provide a PNG and MHA file as arguments")
-    png = realpath(args[0])
-    if not exists(png): help_msg(2, "PNG file does not exist")
-    mha = realpath(args[1])
+    if len(args) != 2: help_msg(2, "You need to provide an input and output file as arguments")
+    input = realpath(args[0])
+    if not exists(input): help_msg(2, "Input file does not exist")
+    output = realpath(args[1])
+    if 
 
     # Set defaults for optional args
     if sigma == None: sigma = 0.0
 
     # Do the actual work!
-    png2mha(png, mha, mode, flip, sigma)
+    conv_img(input, output, mode, flip, sigma)
