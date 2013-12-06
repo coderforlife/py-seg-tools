@@ -323,22 +323,3 @@ def imsave_mhd(filename, im, datafile=None, CompressedData=False, **tags):
         for name, value in alltags: f.write(name + ' = ' + str(value) + '\n')
         if datafile == 'LOCAL': tofile(im, f, CompressedData)
     if datafile != 'LOCAL': tofile(im, datafile, CompressedData)
-
-tags, im = imread_mha('0000.mha')
-tags_out = {'CompressedData':True,'AnatomicalOrientation':'??','Offset':(0,0),'TransformMatrix':(1,0,0,1),'CenterOfRotation':(0,0)}
-imsave_mha('out.mha', im, **tags_out)
-imsave_mhd('out.mhd', im, **tags_out)
-
-import pylab as plt
-
-tags, im = imread_mhd('out.mha')
-plt.figure()
-plt.imshow(im)
-plt.gray()
-
-tags, im = imread_mhd('out.mhd')
-plt.figure()
-plt.imshow(im)
-plt.gray()
-
-plt.show()
