@@ -1,4 +1,5 @@
-def check_reqs(scipy = True, numpy = True, PIL = True, SimpleITK = True, psutil = False):
+def check_reqs(scipy = True, numpy = True, PIL = True, psutil = False):
+    """Checks to see if the required 3rd-party modules are available for import."""
     def __die(name):
         from sys import stderr, exit
         print >> stderr, "Could not import the required module %s" % name
@@ -13,15 +14,13 @@ def check_reqs(scipy = True, numpy = True, PIL = True, SimpleITK = True, psutil 
     if PIL:
         try: import PIL
         except: __die('PIL')
-    if SimpleITK:
-        try: import SimpleITK
-        except: __die('SimpleITK')
     if psutil:
         try: import psutil
         except: __die('psutil')
 
 
 def make_dir(d):
+    """Makes a directory tree. If the path exists as a regular file already False is returned."""
     import os, os.path
     if os.path.isdir(d): return True
     if os.path.exists(d): return False
@@ -32,6 +31,10 @@ def make_dir(d):
 
 
 def only_keep_num(d, allowed, match_slice = slice(None), pattern='*'):
+    """
+    Searches for all files matching a particular glob pattern, extracts the given slice as an
+    integer, and makes sure it is in the list of allowed numbers. If not, the file is deleted.
+    """
     from glob import iglob
     from os import unlink
     from os.path import basename, join, isfile
@@ -47,6 +50,7 @@ def only_keep_num(d, allowed, match_slice = slice(None), pattern='*'):
 
 
 def get_terminal_width():
+    """Gets the width of the terminal if there is a terminal, in which case 80 is returned."""
     from os import environ
     from sys import platform
     
@@ -87,4 +91,4 @@ def get_terminal_width():
     if not w: w = environ.get('COLUMNS', 80)
     return int(w)
 
-def iter_same(x): yield x # iterator that always produces the same value
+def iter_same(x): """Generator/iterator that always produces the given value""" yield x
