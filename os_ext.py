@@ -12,7 +12,8 @@ There are some differences in the returned rusage data. Differences:
 
 __all__ = ['wait4']
 
-if name != 'nt':
+from os import name as os_name
+if os_name != 'nt':
     from os import wait4
 else:
     from collections import namedtuple
