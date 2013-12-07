@@ -11,13 +11,13 @@ output, including the memory load, expected memory load, tasks running, done, an
 of all tasks that are "ready to go" (have all prerequistes complete but need either task slots or
 memory to run).
 
-On *nix systems resource usage can be obtained and saved to a log. Each line is first the name of
-the task then the rusage fields (see http://docs.python.org/2/library/resource.html#resource-usage
+On *nix and Windows systems resource usage can be obtained and saved to a log. Each line is first
+the name of the task then the rusage fields (see http://docs.python.org/2/library/resource.html#resource-usage
 and man 2 getrusage for more information). It will not record Python function tasks that do not run
 in a seperate process. On some forms of *nix the ru_maxrss and other fields will always be 0.
 """
 
-# Only yhe Tasks class along with the byte-size constants are exported
+# Only the Tasks class along with the byte-size constants are exported
 __all__ = ['Tasks', 'KB', 'MB', 'GB', 'TB']
 
 from abc import ABCMeta, abstractmethod
@@ -122,7 +122,7 @@ class Task:
         """
         self.pid = p.pid
         if rusagelog:
-            from os import wait4
+            from os_ext import wait4
             pid, exitcode, rusage = wait4(self.pid, 0)
             del self.pid
             if exitcode: raise CalledProcessError(exitcode, str(self))

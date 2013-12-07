@@ -181,8 +181,7 @@ if __name__ == "__main__":
         elif o == "-u" or o == "--rusage":
             if rusage_log != None: help_msg(2, "Must be only one rusage argument")
             try:
-                from resource import getrusage
-                from os import wait4
+                from os_ext import wait4 # make sure wait4 is available
                 rusage_log = realpath(a)
             except ImportError:
                 print >> stderr, "Warning: System does not support recording resource usage, rusage argument ignored."
