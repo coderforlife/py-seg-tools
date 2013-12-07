@@ -320,7 +320,7 @@ def imsave_mhd(filename, im, datafile=None, CompressedData=False, **tags):
     else:
         if im.dtype not in dtype2met: raise ValueError('Format of image is not supported')
         alltags.append(('ElementType', dtype2met[im.dtype]))
-    alltags.append(('ElementDataFile', os.path.relpath(datafile, directory)))
+    alltags.append(('ElementDataFile', 'LOCAL' if datafile == 'LOCAL' else os.path.relpath(datafile, directory)))
 
     with open(filename, 'wb') as f:
         for name, value in alltags: f.write(name + ' = ' + str(value) + '\n')
