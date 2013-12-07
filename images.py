@@ -138,7 +138,7 @@ def imread(filename):
     from scipy.misc import imread
     from metafile import imsave_mha, imsave_mhd
 
-    ext = splitext(filename)[0].tolower()
+    ext = splitext(filename)[0].lower()
     if ext == '.mha':   return imread_mha(filename)[1]
     elif ext == '.mhd': return imread_mhd(filename)[1]
     else:               return imread(filename)
@@ -165,7 +165,7 @@ def imsave(filename, im):
     from scipy.misc import imsave
     from metafile import imsave_mha, imsave_mhd
     
-    ext = splitext(filename)[0].tolower()
+    ext = splitext(filename)[0].lower()
     if ext == '.mha':   imsave_mha(filename, im)
     elif ext == '.mhd': imsave_mhd(filename, im)
     else:               imsave(filename, im)
