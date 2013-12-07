@@ -210,7 +210,10 @@ def imsave_mhd(filename, im, datafile=None, CompressedData=False, **tags):
         Non-image objects
         Creating a datafile with a non-MHA/MHD header (HeaderSize)
     Attempting to force these features through tags will raise errors.
-    """    
+    """
+
+    from sys import byteorder
+    
     if im.dtype == IM_RGB24_STRUCT: im = im.view(dtype=IM_RGB24)
 
     ndims = im.ndim
@@ -307,7 +310,7 @@ def imsave_mhd(filename, im, datafile=None, CompressedData=False, **tags):
         ('NDims', str(ndims)),
         ('DimSize', list2str(shape_x)),
         ('BinaryData', 'True'),
-        ('BinaryDataByteOrderMSB', str(im.dtype.byteorder == '>' or im.dtype.byteorder == '=' and sys.byteorder != 'little')),
+        ('BinaryDataByteOrderMSB', str(im.dtype.byteorder == '>' or im.dtype.byteorder == '=' and byteorder != 'little')),
         ('CompressedData', str(_bool(CompressedData))),
         ]
     alltags.extend(tags.iteritems())
