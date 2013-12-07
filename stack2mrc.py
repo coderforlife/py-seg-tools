@@ -21,7 +21,8 @@ def stack2mrc(stack, mrc, flip = False, sigma = 0.0):
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
-    from images import imread, MRC, flip_up_down, gauss_blur
+    from mrc import MRC
+    from images import imread, flip_up_down, gauss_blur
 
     stack = iter(stack)
     flip = bool(flip)
@@ -69,7 +70,7 @@ if __name__ == "__main__":
     from sys import argv
     from getopt import getopt, error as getopt_error
     from glob import iglob
-    from images import MRC
+    from mrc import MRC
     
     if len(argv) < 2: help_msg(1)
     

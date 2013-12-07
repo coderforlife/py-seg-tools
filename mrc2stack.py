@@ -27,7 +27,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
-    from images import MRC, flip_up_down, gauss_blur, float_image, create_labels, imsave
+    from mrc import MRC
+    from images import flip_up_down, gauss_blur, float_image, create_labels, imsave
     from utils import make_dir
 
     float_it = False
@@ -87,7 +88,7 @@ if __name__ == "__main__":
     from math import isnan
 
     from utils import make_dir
-    from images import MRC
+    from mrc import MRC
     
     
     if len(argv) < 2: help_msg(1)
