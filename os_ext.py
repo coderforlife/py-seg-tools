@@ -14,6 +14,7 @@ __all__ = ['wait4']
 
 from os import name as os_name
 if os_name != 'nt':
+    # Not Windows, try to import the real wait4
     from os import wait4
 else:
     from collections import namedtuple
@@ -21,12 +22,12 @@ else:
     from ctypes import c_ulonglong as ULONGLONG, c_size_t as SIZE_T
     from ctypes.wintypes import BOOL, DWORD, HANDLE, FILETIME
 
-    def winerrcheck(result, func, args):
-        if not result: raise WinError()
+    def winerrcheck(success, func, args):
+        if not success:
+            if len(args) > 0 and type(args[0]) == HANDLE: CloseHandle(args[0])
+            raise WinError()
         return args
-    def wait_check(result, func, args):
-        if result != 0: raise WinError()
-        return args
+    def wait_check(result, func, args): return wait_check(result == 0, func, args)
     def ValidHandle(h):
         if h == 0: raise WinError()
         return HANDLE(h)
@@ -79,7 +80,7 @@ else:
     CloseHandle = k32.CloseHandle
     CloseHandle.argtypes = [HANDLE]
     CloseHandle.restype  = BOOL
-    CloseHandle.errcheck = winerrcheck
+    #CloseHandle.errcheck = winerrcheck
 
     struct_rusage = namedtuple('struct_rusage',
                                ['ru_utime','ru_stime',
