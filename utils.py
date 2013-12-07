@@ -91,4 +91,6 @@ def get_terminal_width():
     if not w: w = environ.get('COLUMNS', 80)
     return int(w)
 
-def iter_same(x): """Generator/iterator that always produces the given value""" yield x
+def iter_same(x):
+    """Generator/iterator that always produces the given value"""
+    yield x
