@@ -307,7 +307,7 @@ def imsave_mhd(filename, im, datafile=None, CompressedData=False, **tags):
         ('NDims', str(ndims)),
         ('DimSize', list2str(shape_x)),
         ('BinaryData', 'True'),
-        ('BinaryDataByteOrderMSB', str(dtype.byteorder == '>' or dtype.byteorder == '=' and sys.byteorder != 'little')),
+        ('BinaryDataByteOrderMSB', str(im.dtype.byteorder == '>' or im.dtype.byteorder == '=' and sys.byteorder != 'little')),
         ('CompressedData', str(_bool(CompressedData))),
         ]
     alltags.extend(tags.iteritems())
