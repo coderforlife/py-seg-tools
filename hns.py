@@ -7,6 +7,7 @@ from utils import *
 check_reqs(psutil = True)
 
 from images import *
+from mrc import *
 from tasks import *
 
 # TODO:
