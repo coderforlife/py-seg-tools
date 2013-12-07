@@ -123,7 +123,7 @@ class Task:
         self.pid = p.pid
         if rusagelog:
             from os import wait4
-            pid, exitcode, rusage = wait4(p.pid, 0)
+            pid, exitcode, rusage = wait4(self.pid, 0)
             del self.pid
             if exitcode: raise CalledProcessError(exitcode, str(self))
             rusagelog.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (str(self), 
