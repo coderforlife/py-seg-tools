@@ -385,9 +385,9 @@ if __name__ == "__main__":
         all_train = join(t_p_png_folder, 'all_train_round%d.mat' % r)
         MODEL_RF  = join(t_p_png_folder, 'MODEL_RF_round%d.mat'  % r)
         memseg.add(('moj-seg-setup', r, t_d_png_folder, t_s_bw_png_folder, t_p_png_folder), t_d_png+t_s_bw_png+tpr1, all_train)
-        memseg.add(('moj-seg-randomforest', r, t_p_png_folder), all_train, MODEL_RF).pressure(mem = 30*GB)
-        [memseg.add(('moj-seg-genout', str(n+1).rjust(4, '0'), r, 'train', td, t_p_png_folder, MODEL_RF), (MODEL_RF, td),        tpr[n]).pressure(mem =  6*GB) for n, td in enumerate(t_d_png)]
-        [memseg.add(('moj-seg-genout', str(n+1).rjust(4, '0'), r, 'test',  fd, f_p_png_folder, MODEL_RF), [MODEL_RF, fd] + fpr1, fpr[n]).pressure(mem = 13*GB) for n, fd in enumerate(f_d_png)]
+        memseg.add(('moj-seg-randomforest', r, t_p_png_folder), all_train, MODEL_RF).pressure(mem = 20*GB)
+        [memseg.add(('moj-seg-genout', str(n+1).rjust(4, '0'), r, 'train', td, t_p_png_folder, MODEL_RF), (MODEL_RF, td),        tpr[n]).pressure(mem = 3*GB) for n, td in enumerate(t_d_png)]
+        [memseg.add(('moj-seg-genout', str(n+1).rjust(4, '0'), r, 'test',  fd, f_p_png_folder, MODEL_RF), [MODEL_RF, fd] + fpr1, fpr[n]).pressure(mem = 5*GB) for n, fd in enumerate(f_d_png)]
     
     [memseg.add(('conv_img', '-mfloat', png, mha), png, mha).pressure(mem = 20*MB + 6*pxls_t) for png, mha in izip(t_p_png, t_p_mha)]
     [memseg.add(('conv_img', '-mfloat', png, mha), png, mha).pressure(mem = 20*MB + 6*pxls_f) for png, mha in izip(f_p_png, f_p_mha)]
