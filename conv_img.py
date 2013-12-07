@@ -95,7 +95,6 @@ if __name__ == "__main__":
     input = realpath(args[0])
     if not exists(input): help_msg(2, "Input file does not exist")
     output = realpath(args[1])
-    if 
 
     # Set defaults for optional args
     if sigma == None: sigma = 0.0
