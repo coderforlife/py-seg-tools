@@ -464,7 +464,7 @@ if __name__ == "__main__":
     # 4 - Full dataset merge generation
     [memseg.add(('hnsGenMerges', iseg, pb, t, s), (iseg, pb), (t, s)) for iseg, pb, t, s in izip(f_is2, f_p_blur, f_tree, f_sal)]
     # 5 - Full dataset boundary feature generation (see notes above)
-    [memseg.add(('hnsGenBoundaryFeatures', iseg, t, s, db, p, textondict, '0', bcf), (iseg, t, s, db, p, textondict), bcf) for iseg, t, s, db, p, bcf in izip(f_is2, f_tree, f_sal, f_d_blur, f_p_mha, f_bcf)]
+    [memseg.add(('hnsGenBoundaryFeatures', iseg, t, s, db, p, textondict, bcf), (iseg, t, s, db, p, textondict), bcf) for iseg, t, s, db, p, bcf in izip(f_is2, f_tree, f_sal, f_d_blur, f_p_mha, f_bcf)]
     # 8 - Generate Predictions
     rf_predict_procs(memseg, bcmodel, f_bcf, f_bcp)
     # 9 - Segment
