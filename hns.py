@@ -102,8 +102,8 @@ def help_msg(err = 0, msg = None):
     from textwrap import fill, TextWrapper
     from os.path import basename
     
-    w = max(get_terminal_width(), 20)
-    tw = TextWrapper(width = w, subsequent_indent = ' '*18)
+    w = max(get_terminal_width(), 40)
+    tw = TextWrapper(width = w, subsequent_indent = ' '*20)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
     print tw.fill("  %s [args] training.mrc training.mod full.mrc output.mod" % basename(argv[0]))
@@ -111,19 +111,23 @@ def help_msg(err = 0, msg = None):
     #print tw.fill("  %s [args] full.mrc --training=x1,y1,z1,x2,y2,z2 training.mod output.mod" % basename(argv[0]))
     print ""
     print "Required arguments:"
-    print tw.fill("  -w  --water-lvl The watershed water level parameter, probably <=0.02")
+    print tw.fill("  -w  --water-lvl=  The watershed water level parameter, probably <=0.02")
     print ""
     print "Optional algorithm parameters:"
-    print tw.fill("  -c  --contract  The amount to contract contours by to make them inside the membranes")
-    print tw.fill("  -S  --sigma     The amount of Gaussian blur to use, default is 1.0 while 0.0 turns off blurring")
-    print tw.fill("  -n  --num-trees Number of random forest trees, should be at least 100, default is 255 - larger will be slower")
-    print tw.fill("  -M  --mtry      Number of features to use in each node in RF, should be <<85, default is sqrt(total features)")
-    print tw.fill("  -s  --samp-size Fraction of samples used in each node in RF, default is 0.7")
+    print tw.fill("  -c  --contract=   The amount to contract contours by to make them inside the membranes")
+    print tw.fill("  -s  --sigma=      The amount of Gaussian blur to use, default is 1.0 while 0.0 turns off blurring")
+    print tw.fill("  -n  --num-trees=  Number of random forest trees, should be at least 100, default is 255 - larger will be slower")
+    print tw.fill("  -m  --mtry=       Number of features to use in each node in RF, should be <<85, default is sqrt(total features)")
+    print tw.fill("  -S  --samp-size=  Fraction of samples used in each node in RF, default is 0.7")
+    print tw.fill("  -pm-area-thresh0= Pre-merge area threshold #1, default is 50")
+    print tw.fill("  -pm-area-thresh1= Pre-merge area threshold #2, default is 200")
+    print tw.fill("  -pm-prop-thresh=  Pre-merge average probability threshold, default is 0.5")
     print ""
     print "Other optional arguments:"
-    print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -T  --temp      Set temporary directory, default value is ./temp")
-    print tw.fill("  -j  --jobs      Maximum number of jobs to do at once, default is num of processors")
+    print tw.fill("  -h  --help       Display this help")
+    print tw.fill("  -t  --temp=      Set temporary directory, default value is ./temp")
+    print tw.fill("  -j  --jobs=      Maximum number of jobs to do at once, default is num of processors")
+    print tw.fill("  -u  --rusage=    Save the resources usage (memory and time) for each run process to a file [not available on Windows]")
     exit(err)
 
 def die(err, msg):
@@ -145,28 +149,43 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
 
     try:
-        opts, args = getopt(argv[1:], "hT:j:w:c:S:n:M:s:", ["help", "jobs=", "temp=", "water-lvl=", "contract=", "sigma=", "num-trees=", "mtry=", "samp-size="])
+        opts, args = getopt(argv[1:], "ht:j:u:w:c:s:n:m:S:",
+                            ["help", "temp=", "jobs=", "rusage=",
+                             "water-lvl=", "contract=", "sigma=", "num-trees=", "mtry=", "samp-size=", "pm-area-thresh0=", "pm-area-thresh1=", "pm-prop-thresh="
+                             ])
     except getopt_error, msg: help_msg(2, msg)
 
     # Check the arguments
     temp = None
     jobs = None
+    rusage_log = None
     wl = None
     contract = None
     sigma = None
     treeNum = None
     mtry = None
     sampSize = None
+    areaThreshold0 = None
+    areaThreshold1 = None
+    probThreshold = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
-        elif o == "-T" or o == "--temp":
+        elif o == "-t" or o == "--temp":
             if temp != None: help_msg(2, "Must be only one temp argument")
             temp = realpath(a)
         elif o == "-j" or o == "--jobs":
             if jobs != None: help_msg(2, "Must be only one jobs argument")
             if not a.isdigit() or int(a) == 0: help_msg(2, "Number of jobs must be a positive integer")
             jobs = int(a)
+        elif o == "-u" or o == "--rusage":
+            if rusage_log != None: help_msg(2, "Must be only one rusage argument")
+            try:
+                from resource import getrusage
+                from os import wait4
+                rusage_log = realpath(a)
+            except ImportError:
+                print >> stderr, "Warning: System does not support recording resource usage, rusage argument ignored."
 ##        elif o == "-z":
 ##            if z != None: die("Must be only one z argument", 2)
 ##            z = [int(s) for s in a.split(',') if s.isdigit()]
@@ -181,24 +200,37 @@ if __name__ == "__main__":
             try: contract = float(a)
             except: help_msg(2, "Contract must be a floating-point number")
             if isnan(contract): help_msg(2, "Contract must be a floating-point number")
-        elif o == "-S" or o == "--sigma":
+        elif o == "-s" or o == "--sigma":
             if sigma != None: help_msg(2, "Must be only one sigma argument")
             try: sigma = float(a)
             except: help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
         elif o == "-n" or o == "--num-trees":
             if treeNum != None: help_msg(2, "Must be only one num-trees argument")
-            if not a.isdigit() or int(a) == 0: help_msg(2, "treeNum must be a positive integer")
+            if not a.isdigit() or int(a) == 0: help_msg(2, "num-trees must be a positive integer")
             treeNum = int(a)
-        elif o == "-M" or o == "--mtry":
+        elif o == "-m" or o == "--mtry":
             if mtry != None: help_msg(2, "Must be only one mtry argument")
             if not a.isdigit() or not (0 < int(a) < 40): help_msg(2, "mtry must be a positive integer much less than 85")
             mtry = int(a)
-        elif o == "-s" or o == "--samp-size":
+        elif o == "-S" or o == "--samp-size":
             if sampSize != None: help_msg(2, "Must be only one samp-size argument")
             try: sampSize = float(a)
-            except: help_msg(2, "Samp-size must be a floating-point number between 0.0 and 1.0")
-            if not (0 <= sampSize <= 1) or isnan(sampSize): help_msg(2, "Samp-size must be a floating-point number between 0.0 and 1.0")
+            except: help_msg(2, "samp-size must be a floating-point number between 0.0 and 1.0")
+            if not (0 <= sampSize <= 1) or isnan(sampSize): help_msg(2, "samp-size must be a floating-point number between 0.0 and 1.0")
+        elif o == "--pm-area-thresh0=":
+            if areaThreshold0 != None: help_msg(2, "Must be only one pm-area-thresh0 argument")
+            if not a.isdigit() or 0 >= int(a): help_msg(2, "pm-area-thresh0 must be a positive integer")
+            areaThreshold0 = int(a)
+        elif o == "--pm-area-thresh1=":
+            if areaThreshold1 != None: help_msg(2, "Must be only one pm-area-thresh1 argument")
+            if not a.isdigit() or 0 >= int(a): help_msg(2, "pm-area-thresh1 must be a positive integer")
+            areaThreshold1 = int(a)
+        elif o == "--pm-prop-thresh=":
+            if probThreshold != None: help_msg(2, "Must be only one pm-prop-thresh argument")
+            try: probThreshold = float(a)
+            except: help_msg(2, "pm-prop-thresh must be a floating-point number between 0.0 and 1.0")
+            if not (0 <= probThreshold <= 1) or isnan(probThreshold): help_msg(2, "pm-prop-thresh must be a floating-point number between 0.0 and 1.0")
 
     # Check the MRC/MOD arguments
     if len(args) != 4: help_msg(2, "You need to provide a training MRC and MOD file along with a full dataset MRC file as arguments")
@@ -218,18 +250,15 @@ if __name__ == "__main__":
     # Check the required arguments and set defaults for optional args
     if wl       == None: help_msg(2, "water-lvl is a required argument")
     #if jobs     != None: ... # dealt with later
+    #if rusage_log == None: # None means no log
     if contract == None: contract = 0
     if sigma    == None: sigma = 1.0
     if treeNum  == None: treeNum = 255
     if mtry     == None: mtry = 0 # will make the program calculate the proper default
     if sampSize == None: sampSize = 0.70
-
-    # TODO: make these arguments
-    areaThreshold0 = 50
-    areaThreshold1 = 200
-    probThreshold = 0.5
-    rusage_log = 'rusage.log'
-
+    if areaThreshold0 == None: areaThreshold0 = 50
+    if areaThreshold1 == None: areaThreshold1 = 200
+    if probThreshold  == None: probThreshold  = 0.50
 
     # Create temporary directory (and make paths relative)
     if temp == None: temp = realpath(join(getcwd(), "temp"))
