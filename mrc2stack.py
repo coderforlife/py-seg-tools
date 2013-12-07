@@ -165,6 +165,7 @@ if __name__ == "__main__":
 
     # Check other arguments, getting values for optional args, etc.
     if ext      == None: ext = "png"
+    else:                ext = ext.lstrip('.')
     if basename == None: basename = "%04d"
     if sigma    == None: sigma = 0.0
     if x == None: x = (0, mrc.nx - 1)
