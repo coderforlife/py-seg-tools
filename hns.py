@@ -474,7 +474,7 @@ if __name__ == "__main__":
     [memseg.add(('hnsSegment', iseg, t, bcp, fseg), (iseg, t, bcp), fseg) for iseg, t, bcp, fseg in izip(f_is2, f_tree, f_bcp, f_fs)]
     
     ### Convert output files ###
-    [memseg.add(('hnsGenOrderContours', fseg, z, sp), fseg, sp) for fseg, z, sp in izip(f_fs, zs_f, seg_pts)]
+    [memseg.add(('hnsGenOrderedContours', fseg, z, sp), fseg, sp) for fseg, z, sp in izip(f_fs, zs_f, seg_pts)]
     memseg.add(['combine_points',] + seg_pts + [seg_pts_all,], seg_pts, seg_pts_all)
     # TODO: -im and pixel spacing?
     memseg.add(('point2model', '-im', mrc_f_filename, seg_pts_all, mod_output), (mrc_f_filename,seg_pts_all), mod_output)
