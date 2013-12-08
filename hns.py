@@ -358,7 +358,7 @@ if __name__ == "__main__":
             t_p_png_folder, 't_p_mha', 't_p_blur',
             f_p_png_folder, 'f_p_mha', 'f_p_blur',
             't_is1', 't_is2', 't_tree', 't_sal', 't_bcf', 't_bcl',
-            'f_is1', 'f_is2', 'f_tree', 'f_sal', 'f_bcf', 'f_bcp',
+            'f_is1', 'f_is2', 'f_tree', 'f_sal', 'f_bcf', 'f_bcp', 'f_fs'
             seg_pts_folder,
            ]
     for f in folders:
