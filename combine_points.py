@@ -68,7 +68,6 @@ if __name__ == "__main__":
     inputs = [realpath(i) for i in args[:-1] if exists(i)]
     if len(inputs) != len(args) - 1: help_msg(2, "At least one of the input points file does not exist")
     output = realpath(args[-1])
-    if sigma == None: sigma = 0.0
 
     # Do the actual work!
     combine_points(inputs, output)
