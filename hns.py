@@ -333,8 +333,8 @@ if __name__ == "__main__":
 
     t_is1      = [join('t_is1',  i) for i in mhas_t] # training initial segmentation (from watershed)
     t_is2      = [join('t_is2',  i) for i in mhas_t] # training initial segmentation (from pre-merging)
-    t_tree     = [join('t_tree', i) for i in mhas_t] # training segmentation tree
-    t_sal      = [join('t_sal',  i) for i in mhas_t] # training segmentation saliency
+    t_tree     = [join('t_tree', i) for i in ssvs_t] # training segmentation tree
+    t_sal      = [join('t_sal',  i) for i in ssvs_t] # training segmentation saliency
     t_bcf      = [join('t_bcf',  i) for i in ssvs_t] # training segmentation features
     t_bcl      = [join('t_bcl',  i) for i in ssvs_t] # training segmentation labels
 
@@ -342,8 +342,8 @@ if __name__ == "__main__":
 
     f_is1      = [join('f_is1',  i) for i in mhas_f] # full initial segmentation (from watershed)
     f_is2      = [join('f_is2',  i) for i in mhas_f] # full initial segmentation (from pre-merging)
-    f_tree     = [join('f_tree', i) for i in mhas_f] # full segmentation tree
-    f_sal      = [join('f_sal',  i) for i in mhas_f] # full segmentation saliency
+    f_tree     = [join('f_tree', i) for i in ssvs_f] # full segmentation tree
+    f_sal      = [join('f_sal',  i) for i in ssvs_f] # full segmentation saliency
     f_bcf      = [join('f_bcf',  i) for i in ssvs_f] # full segmentation features
     f_bcp      = [join('f_bcp',  i) for i in ssvs_f] # full segmentation predictions
     f_fs       = [join('f_fs',   i) for i in mhas_f] # the final segementation
