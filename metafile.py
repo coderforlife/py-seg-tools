@@ -180,7 +180,7 @@ def float_list(k, v, n): # key, value, number of floats
 def tofile(im, f, compressed):
     if compressed:
         from numpy import array_split
-        with GzipFile(f, 'wb', 9, 'zlib') as gz:
+        with GzipFile(f, 'wb', 6, 'zlib') as gz:
             for chunk in array_split(im.ravel(), max(im.size // 10485760, 1)): # 10 MB chunks
                 gz.write(buffer(chunk))
     else: im.tofile(f)
