@@ -286,8 +286,8 @@ if __name__ == "__main__":
     mhas_f = ['%04d.mha' % i for i in zs_f]
     ssvs_t = ['%04d.ssv' % i for i in zs_t]
     ssvs_f = ['%04d.ssv' % i for i in zs_f]
-    t_chm_files = '####.png,%d-%d' % (zs_t[0], zs_t[-1])
-    f_chm_files = '####.png,%d-%d' % (zs_f[0], zs_f[-1])
+    t_chm_files = '####.png;%d-%d' % (zs_t[0], zs_t[-1])
+    f_chm_files = '####.png;%d-%d' % (zs_f[0], zs_f[-1])
 
 
     # Notes on my conventions:
