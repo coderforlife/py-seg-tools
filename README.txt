@@ -1,9 +1,12 @@
 === Python MRC Image Conversion Tools ===
 
-These scritps require NumPy, SciPy, and PIL (python-imaging).
+These scritps require NumPy, SciPy, and PIL (python-imaging). An optional
+module is h5py which is required for reading v7.3 MATLAB images.
+
 On Linux you can install them using something similar to:
- $ sudo yum install numpy scipy python-imaging
-On Windows I recommend installing Python(x,y).
+ $ sudo yum install numpy scipy python-imaging libhdf5-dev
+ $ sudo easy_install h5py
+On Windows I recommend installing Python(x,y) which includes everything.
 
 Currently there are three Python scripts:
  * mrc2stack
@@ -12,7 +15,8 @@ Currently there are three Python scripts:
 
 --- Formats Supported ---
 For images, any format supported by SciPy / PIL is supported in addition to
-MetaFile formats (MHA and MHD).
+MetaFile formats (MHA and MHD) and reading MAT files. MHA/MHD/MAT files
+normally support many images per file, but only the first is read.
 
 Common supported SciPy / PIL formats:
  * PNG  (1-bit BW, 8-bit gray, 24-bit RGB)

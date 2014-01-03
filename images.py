@@ -9,7 +9,7 @@ __all__ = [
     'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'gauss_blur', 'flip_up_down', 'create_labels', 'float_image', 'imread', 'imsave',
+    'gauss_blur', 'flip_up_down', 'create_labels', 'float_image', 'imread', 'imsave', 'imread_mat',
     ]
 
 # The image types we know about
@@ -115,48 +115,88 @@ def float_image(im, in_scale = None, out_scale = (0.0, 1.0)):
     out = empty(im.shape, dtype=IM_FLOAT)
     return add(multiply(im, k, out), out_min - in_min, out)
 
+def imread_mat(filename, name = None):
+    """
+    Read an 'image' from a MATLAB .MAT file. The file can be any version. Files
+    that are v7.3 require the h5py module. If no name is given, the first
+    variable is taken.
+    """
+    try:
+        # Try general first (doesn't work for v7.3+ files)
+        # SciPy has this built in
+        # Supports loading just the given variable name
+        # Otherwise have to load all variables and skip special keys starting with "__" to find the variable to load
+        # Loaded matracies are already arrays
+        from scipy.io import loadmat
+        if name == None:
+            try:
+                # Try to get first variable name without loading entire file (only supported in SciPy 0.12+)
+                from scipy.io import whosmat
+                keys in whosmat(file_name)
+                if len(keys) == 0: raise KeyError()
+                name = keys[0][0]
+            except: pass
+        x = loadmat(filename, variable_names = name)
+        if name == None:
+            name = '__' # we need to find first
+            for name in x.iterkeys():
+                if name[:2] != '__': break
+            if name[:2] == '__': raise KeyError() # no variables
+        return x[name] # can raise key error
+    except NotImplementedError:
+        # Try v7.3 file which is an HDF5 file
+        # We have to use h5py for this (or PyTables...)
+        # Always loads entire metadata (not just specific variable) but none of the data
+        # Data needs to be actually loaded (.value) and transposed (.T)
+        from h5py import File as HDF5File # TODO: if import error try using PyTables
+        with HDF5File(filename, 'r') as x: # IOError if it doesn't exist or is the wrong format
+            if name == None:
+                try: name = x.iterkeys().next()
+                except StopIteration: raise KeyError() # no variables
+            return x[name].value.T # can raise key error
 
 def imread(filename):
     """
-    Read an image using SciPy (actually PIL) for any formats it supports. If the file extension
-		if MHA or MHD then a custom program is used for reading.
+    Read an image using SciPy (actually PIL) for any formats it supports.
+
+    Additionally, the following extra formats are supported (extension must be right):
+        MHA/MHD:    8-bit gray, 16-bit gray, 32-bit gray, 64-bit gray, float, double, 24-bit RGB
+        MAT:        all formats, may not be image-like (requires h5py module for newer MAT files)
+    Note: both only get the first "image" or data from the file.
     
-    PIL Common Supported Formats:
-        PNG  (1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB)
-        TIFF (1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB) [not ZIP compressed]
-        BMP  (1-bit BW, 8-bit gray, 24-bit RGB)
-        JPEG (8-bit gray, 24-bit RGB)
-        IM   (all?)
-    
-		MHA/MHD supports:
-        8-bit gray, 16-bit gray, 32-bit gray, 64-bit gray, float, double, 24-bit RGB
-    
+    PIL Common Supported Formats: (not all-inclusive)
+        PNG:  1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB
+        TIFF: 1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB [not ZIP compressed]
+        BMP:  1-bit BW, 8-bit gray, 24-bit RGB
+        JPEG: 8-bit gray, 24-bit RGB
+        IM:   all?
+        
     See http://www.pythonware.com/library/pil/handbook/formats.htm for more details
-    MHA/MHD code is implemented in the metafile module.
+    MHA/MHD code is implemented in the metafile module. MAT code is implemented in this module.
     """
     from os.path import splitext
     from scipy.misc import imread
     from metafile import imsave_mha, imsave_mhd
 
     ext = splitext(filename)[1].lower()
-    if ext == '.mha':   return imread_mha(filename)[1]
+    if ext == '.mat':   return imread_mat(filename)
+    elif ext == '.mha': return imread_mha(filename)[1]
     elif ext == '.mhd': return imread_mhd(filename)[1]
     else:               return imread(filename)
     
 def imsave(filename, im):
     """
-    Save an image. It will use SciPy (actually PIL) for any formats it supports. If the file
-    extension if MHA or MHD then a custom program is used for saving.
+    Save an image. It will use SciPy (actually PIL) for any formats it supports.
+
+    Additionally, the following extra formats are supported (extension must be right):
+        MHA/MHD:    8-bit gray, 16-bit gray, 32-bit gray, 64-bit gray, float, double, 24-bit RGB
     
     PIL Common Supported Formats: (not all-inclusive)
-        PNG  (1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB)
-        TIFF (1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB)
-        BMP  (1-bit BW, 8-bit gray, 24-bit RGB)
-        JPEG (8-bit gray, 24-bit RGB)
-        IM   (all?)
-    
-		MHA/MHD supports:
-        8-bit gray, 16-bit gray, 32-bit gray, 64-bit gray, float, double, 24-bit RGB
+        PNG:  1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB
+        TIFF: 1-bit BW, 8-bit gray, 16-bit gray, 24-bit RGB
+        BMP:  1-bit BW, 8-bit gray, 24-bit RGB
+        JPEG: 8-bit gray, 24-bit RGB
+        IM:   all?
     
     See thtp://www.pythonware.com/library/pil/handbook/formats.htm for more details
     MHA/MHD code is implemented in the metafile module.
