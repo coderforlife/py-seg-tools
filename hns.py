@@ -142,7 +142,7 @@ if __name__ == "__main__":
     from os.path import exists, isdir, join, realpath, relpath
     from os import getcwd
     from math import isnan
-    from itertools import izip
+    from itertools import izip, product
 
     #argv = [argv[0], '-w0.01', 'training.mrc', 'training.mod', 'full.mrc', 'output.mod']
 
@@ -279,9 +279,6 @@ if __name__ == "__main__":
     mrc_t.close()
     mrc_f.close()
 
-    nrounds = 2 # number of Mojtaba's segmentation rounds, only values 1-9 work
-    rounds = range(1, nrounds + 1)
-
     # Generic filenames
     pngs_t = ['%04d.png' % i for i in zs_t]
     pngs_f = ['%04d.png' % i for i in zs_f]
@@ -289,6 +286,8 @@ if __name__ == "__main__":
     mhas_f = ['%04d.mha' % i for i in zs_f]
     ssvs_t = ['%04d.ssv' % i for i in zs_t]
     ssvs_f = ['%04d.ssv' % i for i in zs_f]
+    t_chm_files = '####.png,%d-%d' % (zs_t[0], zs_t[-1])
+    f_chm_files = '####.png,%d-%d' % (zs_f[0], zs_f[-1])
 
 
     # Notes on my conventions:
@@ -315,19 +314,21 @@ if __name__ == "__main__":
     t_s_bw_png = [join(t_s_bw_png_folder,  i) for i in pngs_t] # training labels (PNG-black and white)
     t_s_clr_mha= [join(t_s_clr_mha_folder, i) for i in mhas_t] # training labels (MHA-colored)
 
-    t_p_png_folder = 't_p_png'
-    t_p_png_temp   = [[join(t_p_png_folder, '%04d_cv%d_float.png' % (i, r)) for i in zs_t] for r in xrange(1, nrounds + 1)]
-    t_p_png_temp.insert(0, [])
-    t_p_png    = t_p_png_temp[nrounds]                 # training probabilty map (PNG)
+    chm_nstage = 2 # TODO: these should be passable to the CHM_train command
+    chm_nlevel = 4
+    chm_working_folder = 'chm_temp'
+    chm_model_files = ([join(chm_working_folder, 'param.mat'), join(chm_working_folder, 'MODEL_level0_stage%d' % chm_nstage)] +
+                       [join(chm_working_folder, 'MODEL_level%d_stage%d.mat' % (l,s)) for s, l in product(xrange(1,chm_nstage), xrange(chm_nlevel+1))])
+    
+    t_p_mat_folder = join(chm_working_folder, 'output_level0_stage%d' % chm_nstage)
+    t_p_mat    = [join(t_p_mat_folder, '%04d.mat' % i) for i in zs_t] # training probabilty map (MAT)
     t_p_mha    = [join('t_p_mha',  i) for i in mhas_t] # training probabilty map (MHA)
     t_p_blur   = [join('t_p_blur', i) for i in mhas_t] # training probabilty map (MHA-blurred)
 
     f_p_png_folder = 'f_p_png'
-    f_p_png_temp   = [[join(f_p_png_folder, '%04d_cv%d_float.png' % (i, r)) for i in zs_f] for r in xrange(1, nrounds + 1)]
-    f_p_png_temp.insert(0, [])
-    f_p_png    = f_p_png_temp[nrounds]                 # full probabilty map (PNG)
-    f_p_mha    = [join('f_p_mha',  i) for i in mhas_f] # full probabilty map (MHA)
-    f_p_blur   = [join('f_p_blur', i) for i in mhas_f] # full probabilty map (MHA-blurred)
+    f_p_png    = [join(f_p_png_folder,  i) for i in pngs_f] # full probabilty map (PNG)
+    f_p_mha    = [join('f_p_mha',       i) for i in mhas_f] # full probabilty map (MHA)
+    f_p_blur   = [join('f_p_blur',      i) for i in mhas_f] # full probabilty map (MHA-blurred)
 
     textondict = 'textondict.ssv' # Texture data
 
@@ -355,7 +356,8 @@ if __name__ == "__main__":
     # All folders that are used
     folders = [
             t_d_png_folder, f_d_png_folder, t_d_blur_folder, f_d_blur_folder, t_s_bw_png_folder, t_s_clr_mha_folder,
-            t_p_png_folder, 't_p_mha', 't_p_blur',
+            chm_working_folder,
+            t_p_mat_folder, 't_p_mha', 't_p_blur',
             f_p_png_folder, 'f_p_mha', 'f_p_blur',
             't_is1', 't_is2', 't_tree', 't_sal', 't_bcf', 't_bcl',
             'f_is1', 'f_is2', 'f_tree', 'f_sal', 'f_bcf', 'f_bcp', 'f_fs',
@@ -363,24 +365,6 @@ if __name__ == "__main__":
            ]
     for f in folders:
         if not make_dir(join(temp, f)): help_msg(2, f + " in the temporary directory already exists as regular file, choose another directory")
-
-    ### Clean out some files from temporary directories that may interfere ###
-    # This is needed for Mojtaba's program which simply takes folders and assumes it should process everything there
-    only_keep_num(join(temp, f_d_png_folder),     zs_f, slice(-4), '*.png')
-    only_keep_num(join(temp, t_d_png_folder),     zs_t, slice(-4), '*.png')
-    only_keep_num(join(temp, t_s_bw_png_folder),  zs_t, slice(-4), '*.png')
-    only_keep_num(join(temp, f_p_png_folder),     zs_f, slice(-14), '*_cv%d_float.png' % nrounds)
-    for r in rounds:
-        only_keep_num(join(temp, t_p_png_folder), zs_t, slice(-17), '*_train_round%d.txt' % r)
-        only_keep_num(join(temp, t_p_png_folder), zs_t, slice(-14), '*_cv%d_float.png' % r)
-        only_keep_num(join(temp, f_p_png_folder), zs_f, slice(-14), '*_cv%d_float.png' % r)
-    for i in zs_t:
-        only_keep_num(join(temp, t_p_png_folder), rounds, slice( 7, 8), '%04d_cv*_float.png'    % i)
-        only_keep_num(join(temp, t_p_png_folder), rounds, slice(16,17), '%04d_train_round*.txt' % i)
-    #for i in zs_f:
-    #    f_p_png?
-    only_keep_num(join(temp, t_p_png_folder), rounds, slice(15,16), 'all_train_round*.mat')
-    only_keep_num(join(temp, t_p_png_folder), rounds, slice(14,15), 'MODEL_RF_round*.mat')
 
 
     ### Create the task ###
@@ -390,6 +374,8 @@ if __name__ == "__main__":
                    max_tasks_at_once = jobs, workingdir = temp,
                    rusage_log = rusage_log)
     jobs = memseg.max_tasks_at_once # if jobs was None, now it is cpu_count(), otherwise unchanged
+    most_jobs = max(jobs*3//4, min(jobs, 2))
+    least_jobs = max(jobs - most_jobs, 1)
 
     ### Convert input files ###
     memseg.add(('mrc2stack', mrc_f_filename, f_d_png_folder), mrc_f_filename, f_d_png).pressure(mem = 20*MB + 2*bytes_f)
@@ -406,31 +392,24 @@ if __name__ == "__main__":
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
-    #memseg.add(('moj-seg', t_d_png_folder, t_s_bw_png_folder, f_d_png_folder, f_p_png_folder, t_p_png_folder), t_d_png+t_s_bw_png+f_d_png, f_p_png+t_p_png)
-    for r in rounds:
-        tpr, tpr1 = t_p_png_temp[r], t_p_png_temp[r-1]
-        fpr, fpr1 = f_p_png_temp[r], f_p_png_temp[r-1]
-        all_train = join(t_p_png_folder, 'all_train_round%d.mat' % r)
-        MODEL_RF  = join(t_p_png_folder, 'MODEL_RF_round%d.mat'  % r)
-        memseg.add(('moj-seg-setup', r, t_d_png_folder, t_s_bw_png_folder, t_p_png_folder), t_d_png+t_s_bw_png+tpr1, all_train)
-        memseg.add(('moj-seg-randomforest', r, t_p_png_folder), all_train, MODEL_RF).pressure(mem = 20*GB)
-        [memseg.add(('moj-seg-genout', str(n+1).rjust(4, '0'), r, 'train', td, t_p_png_folder, MODEL_RF), (MODEL_RF, td),        tpr[n]).pressure(mem = 3*GB) for n, td in enumerate(t_d_png)]
-        [memseg.add(('moj-seg-genout', str(n+1).rjust(4, '0'), r, 'test',  fd, f_p_png_folder, MODEL_RF), [MODEL_RF, fd] + fpr1, fpr[n]).pressure(mem = 5*GB) for n, fd in enumerate(f_d_png)]
+    #memseg.add(('CHMSEG', join(t_d_png_folder, t_chm_files), join(t_s_bw_png_folder, t_chm_files), join(f_d_png_folder, f_chm_files), f_p_png_folder, chm_working_folder), t_d_png+t_s_bw_png+f_d_png, f_p_png+t_p_mat)
+    memseg.add(('CHM_train', join(t_d_png_folder, t_chm_files), join(t_s_bw_png_folder, t_chm_files), chm_working_folder), t_d_png+t_s_bw_png, t_p_mat+chm_model_files).pressure(mem=75*GB, cpu=least_jobs)
+    [memseg.add(('CHM_test_single', fd, fp, chm_working_folder), [fd] + chm_model_files, fp).pressure(mem=10*GB) for fd, fp in zip(f_d_png, f_p_png)]
     
-    [memseg.add(('conv_img', '-mfloat', png, mha), png, mha).pressure(mem = 20*MB + 6*pxls_t) for png, mha in izip(t_p_png, t_p_mha)]
+    [memseg.add(('conv_img',            mat, mha), mat, mha).pressure(mem = 20*MB + 6*pxls_t) for mat, mha in izip(t_p_mat, t_p_mha)]
     [memseg.add(('conv_img', '-mfloat', png, mha), png, mha).pressure(mem = 20*MB + 6*pxls_f) for png, mha in izip(f_p_png, f_p_mha)]
     if sigma == 0.0:
-        # TODO: does this actually work? I probably should just use a Python function to copy all at once instead of seperate processes
+        # TODO: does this actually work? I probably should just copy all at once instead of seperate processes
         [memseg.add(('cp', mha, blur), mha, blur, 'sigma').pressure(mem = 20*MB) for mha, blur in izip(t_p_mha, t_p_blur)]
         [memseg.add(('cp', mha, blur), mha, blur, 'sigma').pressure(mem = 20*MB) for mha, blur in izip(f_p_mha, f_p_blur)]
     else:
-        [memseg.add(('conv_img', '-mfloat', '-s'+str(sigma), png, blur), png, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_t) for png, blur in izip(t_p_png, t_p_blur)]
+        [memseg.add(('conv_img',            '-s'+str(sigma), mat, blur), mat, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_t) for mat, blur in izip(t_p_mat, t_p_blur)]
         [memseg.add(('conv_img', '-mfloat', '-s'+str(sigma), png, blur), png, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_f) for png, blur in izip(f_p_png, f_p_blur)]
 
 
     ### Training Phase ###
     # 1 - Training texures
-    memseg.add(genTextonDict_cmd(t_d_blur, t_s_clr_mha, textondict), t_d_blur+t_s_clr_mha, textondict).pressure(cpu=max(jobs*3//4, min(jobs, 2)))
+    memseg.add(genTextonDict_cmd(t_d_blur, t_s_clr_mha, textondict), t_d_blur+t_s_clr_mha, textondict).pressure(cpu=most_jobs)
     # 2 - Training initial segmentation (watershed)
     # Defaults used:
     #   [3] writeToUInt16Image       -> 0 (means write uint32 label image which is what we want)
