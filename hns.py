@@ -317,7 +317,7 @@ if __name__ == "__main__":
     chm_nstage = 2 # TODO: these should be passable to the CHM_train command
     chm_nlevel = 4
     chm_working_folder = 'chm_temp'
-    chm_model_files = ([join(chm_working_folder, 'param.mat'), join(chm_working_folder, 'MODEL_level0_stage%d' % chm_nstage)] +
+    chm_model_files = ([join(chm_working_folder, 'param.mat'), join(chm_working_folder, 'MODEL_level0_stage%d.mat' % chm_nstage)] +
                        [join(chm_working_folder, 'MODEL_level%d_stage%d.mat' % (l,s)) for s, l in product(xrange(1,chm_nstage), xrange(chm_nlevel+1))])
     
     t_p_mat_folder = join(chm_working_folder, 'output_level0_stage%d' % chm_nstage)
