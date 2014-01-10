@@ -280,38 +280,38 @@ if __name__ == "__main__":
     mrc_f.close()
 
     # Generic filenames
-    pngs_t = ['%04d.png' % i for i in zs_t]
-    pngs_f = ['%04d.png' % i for i in zs_f]
+    tifs_t = ['%04d.tif' % i for i in zs_t]
+    tifs_f = ['%04d.tif' % i for i in zs_f]
     mhas_t = ['%04d.mha' % i for i in zs_t]
     mhas_f = ['%04d.mha' % i for i in zs_f]
     ssvs_t = ['%04d.ssv' % i for i in zs_t]
     ssvs_f = ['%04d.ssv' % i for i in zs_f]
-    t_chm_files = '####.png;%d-%d' % (zs_t[0], zs_t[-1])
-    f_chm_files = '####.png;%d-%d' % (zs_f[0], zs_f[-1])
+    t_chm_files = '####.tif;%d-%d' % (zs_t[0], zs_t[-1])
+    f_chm_files = '####.tif;%d-%d' % (zs_f[0], zs_f[-1])
 
 
     # Notes on my conventions:
     # Since there are so many variables coming up, I starting a naming system for them
     # They begin with "f_" and "t_" to represent the full and training datasets respectively
     # The first set (during image conversions) have "d_" for raw data, "s_" for label/segmented data, and "p_" for probability maps
-    # The end is the file type (PNG, MHA, or MHA-blurred [simply blur])
+    # The end is the file type (TIFF, MHA, or MHA-blurred [simply blur])
     # Other names end with some sort of short descriptor of the contents (is = initial segmentation, tree = seg tree, sal = seg saliency, ...)
 
     ## All of the file names that will be used, relative to temporary directory    
-    t_d_png_folder = 't_d_png'
-    f_d_png_folder = 'f_d_png'
+    t_d_tif_folder = 't_d_tif'
+    f_d_tif_folder = 'f_d_tif'
     t_d_blur_folder = 't_d_blur'
     f_d_blur_folder = 'f_d_blur'
-    t_d_png    = [join(t_d_png_folder,  i) for i in pngs_t] # training dataset (PNG)
-    f_d_png    = [join(f_d_png_folder,  i) for i in pngs_f] # full dataset     (PNG)
+    t_d_tif    = [join(t_d_tif_folder,  i) for i in tifs_t] # training dataset (TIFF)
+    f_d_tif    = [join(f_d_tif_folder,  i) for i in tifs_f] # full dataset     (TIFF)
     t_d_blur   = [join(t_d_blur_folder, i) for i in mhas_t] # training dataset (MHA-blurred)
     f_d_blur   = [join(f_d_blur_folder, i) for i in mhas_f] # full dataset     (MHA-blurred)
 
     t_s_bw     = 't_s_bw.mrc'  # training labels (black and white)
     t_s_clr    = 't_s_clr.mrc' # training labels (colored)
-    t_s_bw_png_folder = 't_s_bw'
+    t_s_bw_tif_folder = 't_s_bw'
     t_s_clr_mha_folder = 't_s_clr'
-    t_s_bw_png = [join(t_s_bw_png_folder,  i) for i in pngs_t] # training labels (PNG-black and white)
+    t_s_bw_tif = [join(t_s_bw_tif_folder,  i) for i in tifs_t] # training labels (TIFF-black and white)
     t_s_clr_mha= [join(t_s_clr_mha_folder, i) for i in mhas_t] # training labels (MHA-colored)
 
     chm_nstage = 2 # TODO: these should be passable to the CHM_train command
@@ -325,8 +325,8 @@ if __name__ == "__main__":
     t_p_mha    = [join('t_p_mha',  i) for i in mhas_t] # training probabilty map (MHA)
     t_p_blur   = [join('t_p_blur', i) for i in mhas_t] # training probabilty map (MHA-blurred)
 
-    f_p_png_folder = 'f_p_png'
-    f_p_png    = [join(f_p_png_folder,  i) for i in pngs_f] # full probabilty map (PNG)
+    f_p_tif_folder = 'f_p_tif'
+    f_p_tif    = [join(f_p_tif_folder,  i) for i in tifs_f] # full probabilty map (TIFF)
     f_p_mha    = [join('f_p_mha',       i) for i in mhas_f] # full probabilty map (MHA)
     f_p_blur   = [join('f_p_blur',      i) for i in mhas_f] # full probabilty map (MHA-blurred)
 
@@ -355,10 +355,10 @@ if __name__ == "__main__":
 
     # All folders that are used
     folders = [
-            t_d_png_folder, f_d_png_folder, t_d_blur_folder, f_d_blur_folder, t_s_bw_png_folder, t_s_clr_mha_folder,
+            t_d_tif_folder, f_d_tif_folder, t_d_blur_folder, f_d_blur_folder, t_s_bw_tif_folder, t_s_clr_mha_folder,
             chm_working_folder,
             t_p_mat_folder, 't_p_mha', 't_p_blur',
-            f_p_png_folder, 'f_p_mha', 'f_p_blur',
+            f_p_tif_folder, 'f_p_mha', 'f_p_blur',
             't_is1', 't_is2', 't_tree', 't_sal', 't_bcf', 't_bcl',
             'f_is1', 'f_is2', 'f_tree', 'f_sal', 'f_bcf', 'f_bcp', 'f_fs',
             seg_pts_folder,
@@ -378,8 +378,8 @@ if __name__ == "__main__":
     least_jobs = max(jobs - most_jobs, 1)
 
     ### Convert input files ###
-    memseg.add(('mrc2stack', mrc_f_filename, f_d_png_folder), mrc_f_filename, f_d_png).pressure(mem = 20*MB + 2*bytes_f)
-    memseg.add(('mrc2stack', mrc_t_filename, t_d_png_folder), mrc_t_filename, t_d_png).pressure(mem = 20*MB + 2*bytes_t)
+    memseg.add(('mrc2stack', mrc_f_filename, f_d_tif_folder), mrc_f_filename, f_d_tif).pressure(mem = 20*MB + 2*bytes_f)
+    memseg.add(('mrc2stack', mrc_t_filename, t_d_tif_folder), mrc_t_filename, t_d_tif).pressure(mem = 20*MB + 2*bytes_t)
 
     memseg.add(('mrc2stack', '-emha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), mrc_f_filename, f_d_blur, 'sigma').pressure(mem = 20*MB + bytes_f + 4*pxls_f)
     memseg.add(('mrc2stack', '-emha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), mrc_t_filename, t_d_blur, 'sigma').pressure(mem = 20*MB + bytes_t + 4*pxls_t)
@@ -387,24 +387,24 @@ if __name__ == "__main__":
     memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), t_s_bw , 'contract').pressure(mem = 20*MB + bytes_t + 1*pxls_t) # TODO: support extra args
     memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), t_s_clr, 'contract').pressure(mem = 20*MB + bytes_t + 3*pxls_t) # TODO: support extra args
 
-    memseg.add(('mrc2stack',                     t_s_bw,  t_s_bw_png_folder ), t_s_bw , t_s_bw_png ).pressure(mem = 20*MB + 2*pxls_t)
+    memseg.add(('mrc2stack', '-etif',            t_s_bw,  t_s_bw_tif_folder ), t_s_bw , t_s_bw_tif ).pressure(mem = 20*MB + 2*pxls_t)
     memseg.add(('mrc2stack', '-emha', '-mlabel', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
-    #memseg.add(('CHMSEG', join(t_d_png_folder, t_chm_files), join(t_s_bw_png_folder, t_chm_files), join(f_d_png_folder, f_chm_files), f_p_png_folder, chm_working_folder), t_d_png+t_s_bw_png+f_d_png, f_p_png+t_p_mat)
-    memseg.add(('CHM_train', join(t_d_png_folder, t_chm_files), join(t_s_bw_png_folder, t_chm_files), chm_working_folder), t_d_png+t_s_bw_png, t_p_mat+chm_model_files).pressure(mem=75*GB, cpu=least_jobs)
-    [memseg.add(('CHM_test_single', fd, fp, chm_working_folder), [fd] + chm_model_files, fp).pressure(mem=10*GB) for fd, fp in zip(f_d_png, f_p_png)]
+    #memseg.add(('CHMSEG', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), join(f_d_tif_folder, f_chm_files), f_p_tif_folder, chm_working_folder), t_d_tif+t_s_bw_tif+f_d_tif, f_p_tif+t_p_mat)
+    memseg.add(('CHM_train', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), chm_working_folder), t_d_tif+t_s_bw_tif, t_p_mat+chm_model_files).pressure(mem=75*GB, cpu=least_jobs)
+    [memseg.add(('CHM_test', fd, f_p_tif_folder, '-s', '-m', chm_working_folder), [fd] + chm_model_files, fp).pressure(mem=10*GB) for fd, fp in zip(f_d_tif, f_p_tif)]
     
     [memseg.add(('conv_img',            mat, mha), mat, mha).pressure(mem = 20*MB + 6*pxls_t) for mat, mha in izip(t_p_mat, t_p_mha)]
-    [memseg.add(('conv_img', '-mfloat', png, mha), png, mha).pressure(mem = 20*MB + 6*pxls_f) for png, mha in izip(f_p_png, f_p_mha)]
+    [memseg.add(('conv_img', '-mfloat', tif, mha), tif, mha).pressure(mem = 20*MB + 6*pxls_f) for tif, mha in izip(f_p_tif, f_p_mha)]
     if sigma == 0.0:
         # TODO: does this actually work? I probably should just copy all at once instead of seperate processes
         [memseg.add(('cp', mha, blur), mha, blur, 'sigma').pressure(mem = 20*MB) for mha, blur in izip(t_p_mha, t_p_blur)]
         [memseg.add(('cp', mha, blur), mha, blur, 'sigma').pressure(mem = 20*MB) for mha, blur in izip(f_p_mha, f_p_blur)]
     else:
         [memseg.add(('conv_img',            '-s'+str(sigma), mat, blur), mat, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_t) for mat, blur in izip(t_p_mat, t_p_blur)]
-        [memseg.add(('conv_img', '-mfloat', '-s'+str(sigma), png, blur), png, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_f) for png, blur in izip(f_p_png, f_p_blur)]
+        [memseg.add(('conv_img', '-mfloat', '-s'+str(sigma), tif, blur), tif, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_f) for tif, blur in izip(f_p_tif, f_p_blur)]
 
 
     ### Training Phase ###
