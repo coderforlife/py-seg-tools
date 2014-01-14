@@ -169,10 +169,15 @@ if __name__ == "__main__":
     if basename == None: basename = "%04d"
     if sigma    == None: sigma = 0.0
     if x == None: x = (0, mrc.nx - 1)
-    elif x[0] < 0 or x[1] < x[0] or x[1] < mrc.nx: help_msg(2, "Invalid x argument supplied")
+    elif x[0] < 0 or x[1] < x[0] or x[1] >= mrc.nx: help_msg(2, "Invalid x argument supplied")
     if y == None: y = (0, mrc.ny - 1)
-    elif y[0] < 0 or y[1] < y[0] or y[1] < mrc.ny: help_msg(2, "Invalid x argument supplied")
-    zs = (min(z), max(z)) if z else (0, mrc.nz - 1)
+    elif y[0] < 0 or y[1] < y[0] or y[1] >= mrc.ny: help_msg(2, "Invalid x argument supplied")
+    if z:
+        min_z, max_z = min(z), max(z)
+        if min_z < 0 or max_z >= mrc.nz: help_msg(2, "Invalid z argument supplied")
+        zs = (min_z, max_z)
+        z = [Z-min_z for Z in z]
+    else: zs = (0, mrc.nz - 1)
 
     # Do the actual work!
     mrc2stack(mrc.view(x, y, zs), out_dir, z, basename+"."+ext, mode, flip, sigma)
