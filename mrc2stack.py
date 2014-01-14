@@ -175,9 +175,6 @@ if __name__ == "__main__":
     if z:
         min_z, max_z = min(z), max(z)
         if min_z < 0 or max_z >= mrc.nz: help_msg(2, "Invalid z argument supplied")
-        zs = (min_z, max_z)
-        z = [Z-min_z for Z in z]
-    else: zs = (0, mrc.nz - 1)
 
     # Do the actual work!
-    mrc2stack(mrc.view(x, y, zs), out_dir, z, basename+"."+ext, mode, flip, sigma)
+    mrc2stack(mrc.view(x, y, (0, mrc.nz - 1)), out_dir, z, basename+"."+ext, mode, flip, sigma)
