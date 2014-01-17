@@ -35,11 +35,47 @@ from pipes import quote
 
 from calendar import timegm
 from time import gmtime, sleep, strftime, strptime, time
+from datetime import datetime
 import re
 
 from psutil import Process, virtual_memory # not a built-in library
+try: import saga # not a built-in library, but only required when using clustering
+except: pass
 
 this_proc = Process(getpid())
+
+def get_mem_used_by_tree(proc = this_proc):
+    """
+    Gets the memory used by a process and all its children (RSS). If the process is not
+    provided, this process is used. The argument must be a pid or a psutils.Process object.
+    Return value is in bytes.
+    """
+    # This would be nice, but it turns out it crashes the whole program if the process finished between creating the list of children and getting the memory usage
+    # Adding "if p.is_running()" would help but still have a window for the process to finish before getting the memory usage
+    #return sum((p.get_memory_info()[0] for p in proc.get_children(True)), proc.get_memory_info()[0])
+    if isinstance(proc, (int, long)): proc = Process(proc) # was given a PID
+    mem = proc.get_memory_info()[0]
+    for p in proc.get_children(True):
+        try:
+            if p.is_running():
+                mem += p.get_memory_info()[0]
+        except: pass
+    return mem
+
+def get_time_used_by_tree(proc = this_proc):
+    """
+    Gets the CPU time used by a process and all its children (user+sys). If the process is not
+    provided, this process is used. The argument must be a pid or a psutils.Process object.
+    Return values is in seconds.
+    """
+    if isinstance(proc, (int, long)): proc = Process(proc) # was given a PID
+    time = sum(proc.get_cpu_times())
+    for p in proc.get_children(True):
+        try:
+            if p.is_running():
+                time += sum(p.get_cpu_times())
+        except: pass
+    return time
 
 def write_error(s):
     """
@@ -74,6 +110,7 @@ def write_error(s):
         elif name == "nt":  k32.SetConsoleTextAttribute(handle, prev)
     stderr.write("\n")
 
+
 # These constants are for when giving a certain amount of memory pressure to a
 # task. So 1 GB can be easily written as 1*GB.
 KB = 1024
@@ -87,8 +124,9 @@ class Task:
     Abstract Task class representing a single Task to be run.
     """
     __metaclass__ = ABCMeta
-    def __init__(self, name, inputs=(), outputs=(), settings=(), wd=None):
+    def __init__(self, parent, name, inputs=(), outputs=(), settings=(), wd=None):
         #if len(outputs) == 0: raise ValueError('Each task must output at least one file')
+        self.parent = parent     # the Tasks object that owns this task
         self.name = name         # name of this task
         self.wd = realpath(wd) if wd != None else getcwd() # working directory
         if isinstance(inputs, basestring): inputs = (inputs,)
@@ -97,36 +135,36 @@ class Task:
         self.inputs = frozenset(realpath(join(self.wd, f)) for f in inputs)
         self.outputs = frozenset(realpath(join(self.wd, f)) for f in outputs)
         self.settings = frozenset(settings)
-        self.before = set()      # tasks that come before this task
-        self.after = set()       # tasks that come after this task
-        self.__all_after = None  # the cache for the all_after function
-        self.done = False        # not done yet
-        self.cpu_pressure = 1    # default number of CPUs is 1
-        self.mem_pressure = 1*MB # default memory pressure is 1 MB
+        self.before = set()       # tasks that come before this task
+        self.after = set()        # tasks that come after this task
+        self.__all_after = None   # the cache for the all_after function
+        self.done = False         # not done yet
+        self._cpu_pressure = 1    # default number of CPUs is 1
+        self._mem_pressure = 1*MB # default memory pressure is 1 MB
     def __eq__(self, other): return type(self) == type(other) and self.name == other.name
     def __lt__(self, other): return type(self) <  type(other) or  type(self) == type(other) and self.name < other.name
     def __hash__(self):      return hash(self.name+str(type(self)))
     def __repr__(self):      return self.name
-    
+
     @abstractmethod
-    def _run(self, rusagelog=None):
+    def _run(self):
         """
         Starts the task and waits, throws exceptions if something goes wrong.
         This is in abstract method and is implemented in each derived class.
         """
         pass # abstract method does nothing
-    def _run_proc(self, p, rusagelog=None):
+    def _run_proc(self, p):
         """
         The _run method for seperate process systems. The argument p is a Popen-like object that has
         the attribute 'pid' and the method 'wait' that takes no arguments and retruns the exit code.
         """
         self.pid = p.pid
-        if rusagelog:
+        if self.parent._rusagelog:
             from os_ext import wait4
             pid, exitcode, rusage = wait4(self.pid, 0)
             del self.pid
             if exitcode: raise CalledProcessError(exitcode, str(self))
-            rusagelog.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (str(self), 
+            self.parent._rusagelog.write('%s %f %f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n' % (str(self), 
                 rusage.ru_utime, rusage.ru_stime, rusage.ru_maxrss, rusage.ru_ixrss, rusage.ru_idrss, rusage.ru_isrss,
                 rusage.ru_minflt, rusage.ru_majflt, rusage.ru_nswap, rusage.ru_inblock, rusage.ru_oublock,
                 rusage.ru_msgsnd, rusage.ru_msgrcv, rusage.ru_nsignals, rusage.ru_nvcsw, rusage.ru_nivcsw))
@@ -162,6 +200,11 @@ class Task:
         self.done = True
         for t in self.before:
             if not t.done: t.mark_as_done()
+
+    @property
+    def cpu_pressure(self): return self._cpu_pressure
+    @property
+    def mem_pressure(self): return self._mem_pressure
     def pressure(self, cpu=None, mem=None):
         """
         Gives the task a certain amount of CPU and/or memory pressure (in bytes). The task will not start unless there
@@ -176,17 +219,26 @@ class Task:
         if cpu != None:
             cpu = int(cpu)
             if cpu <= 0: raise ValueError('Number of used CPUs must be positive')
-            self.cpu_pressure = cpu
+            self._cpu_pressure = cpu
         if mem != None:
             mem = int(mem)
             if mem < 0: raise ValueError('Amount of used memory must be non-negative')
-            self.mem_pressure = mem
+            self._mem_pressure = mem
+    def current_usage(self):
+        """
+        Gets the current memory (bytes) and total CPU usage (seconds) by this task. Throws exceptions in many cases,
+        including if the task does not support this operation.
+        """
+        p = Process(self.pid)
+        return get_mem_used_by_tree(p), get_time_used_by_tree(p)
+    def terminate(self): Process(self.pid).terminate()
+    def kill(self):      Process(self.pid).kill()
 
 class TaskUsingProcess(Task):
     """
     A single Task that runs using a seperate process. 
     """
-    def __init__(self, cmd, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
+    def __init__(self, parent, cmd, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
         """
         Create a new Task using a process. The cmd can either be a command-line
         string or a iterable of command-line parts. The stdin/stdout/stderr can
@@ -201,18 +253,88 @@ class TaskUsingProcess(Task):
         self.stdin  = stdin
         self.stdout = stdout
         self.stderr = stderr
-        Task.__init__(self, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
-    def _run(self, rusagelog=None):
+        Task.__init__(self, parent, "`%s`" % " ".join(quote(str(s)) for s in cmd), inputs, outputs, settings, wd)
+    def _run(self):
         stdin  = open(self.stdin,  'r', 1) if isinstance(self.stdin,  basestring) else self.stdin
         stdout = open(self.stdout, 'w', 1) if isinstance(self.stdout, basestring) else self.stdout
         stderr = open(self.stderr, 'w', 1) if isinstance(self.stderr, basestring) else self.stderr
-        self._run_proc(Popen(self.cmd, cwd=self.wd, stdin=stdin, stdout=stdout, stderr=stderr), rusagelog)
+        self._run_proc(Popen(self.cmd, cwd=self.wd, stdin=stdin, stdout=stdout, stderr=stderr))
+class TaskUsingCluster(TaskUsingProcess):
+    """
+    A single Task that runs using a seperate process, either locally or on a cluster.
+    THIS IS UNTESTED
+    """
+    def __init__(self, parent, cmd, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
+        # We need copies of the original (relative) intputs and outputs for sending to the server
+        self._orig_inputs = frozenset(inputs)
+        self._orig_outputs = frozenset(outputs)
+        TaskUsingProcess.__init__(self, parent, cmd, inputs, outputs, settings, wd, stdin, stdout, stderr)
+    def _run(self):
+        if self.parent._cluster:
+            # TODO: rusagelog
+            # TODO: SGE properties: name queue project
+
+            # Set the command to be run
+            desc = saga.job.Description()
+            desc.executable = self.cmd[0]
+            desc.arguments = self.cmd[1:]
+            desc.environment = TODO
+            if isinstance(self.stdin, basestring): desc.input = self.stdin
+            elif self.stdin != None: raise ValueError("Commands running on a cluster do not support using non-file STDIN")
+            if isinstance(self.stdout, basestring): desc.output = self.stdout
+            elif self.stdout != None: raise ValueError("Commands running on a cluster do not support using non-file STDOUT")
+            if isinstance(self.stderr, basestring): desc.error = self.stderr
+            elif self.stderr != None: raise ValueError("Commands running on a cluster do not support using non-file STDERR")
+            #desc.working_directory = self.wd # TODO
+
+            # Set the CPU and memory hints
+            desc.total_cpu_count = self._cpu_pressure # TODO: determine target's CPU capabilities
+            if self._mem_pressure > 1*MB: desc.total_physical_memory = self._mem_pressure / MB
+
+            # Set inputs and outputs
+            desc.file_transfer = ([x+" > "+y for x, y in zip(self.inputs,  self._orig_inputs )] +
+                                  [x+" < "+y for x, y in zip(self.outputs, self._orig_outputs)])
+            desc.cleanup = True
+
+            # TODO: are the stdin/stdout/stderr files copied automatically?
+
+            self.job = self.parent._cluster.service.create_job(desc)
+            try:
+                self.job.run()
+                self.job.wait()
+                exitcode = self.job.exit_code
+            finally:
+                del self.job
+            if exitcode: raise CalledProcessError(exitcode, str(self))
+        else:
+            super(TaskUsingCluster, self)._run()
+    @Task.cpu_pressure.getter
+    def cpu_pressure(self): return 0 if self.parent._cluster else self._cpu_pressure
+    @Task.mem_pressure.getter
+    def mem_pressure(self): return 0 if self.parent._cluster else self._mem_pressure
+    def current_usage(self):
+        if self.parent._cluster:
+            return 0, (time() - TaskUsingCluster._get_time(self.job.started) if self.job == saga.job.RUNNING else 0)
+        else: return super(TaskUsingCluster, self).current_usage()
+    @staticmethod
+    def _get_time(x):
+        if isinstance(x, (int,long,float)): return x
+        elif isinstance(x, basestring):     return strptime(x)
+        elif isinstance(x, datetime):       return (x-datetime.utcfromtimestamp(0)).total_seconds()
+        else: raise ValueError()
+    def terminate(self):
+        if hasattr(self, 'job'): self.job.cancel(1)
+        else: super(TaskUsingCluster, self).terminate()
+    def kill(self):
+        if hasattr(self, 'job'): self.job.cancel()
+        else: super(TaskUsingCluster, self).kill()
+        
 class TaskUsingPythonFunction(Task):
     """
     Create a new Task that calls a Python function in the same process.
     THIS IS UNTESTED
     """
-    def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=()):
+    def __init__(self, parent, target, args, kwargs, inputs=(), outputs=(), settings=()):
         """
         The target must be a callable object (like a function). The args and
         kwargs are a tuple and dictionary that are given to the target function
@@ -225,9 +347,13 @@ class TaskUsingPythonFunction(Task):
         kwargs = ""
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
-        Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings)
+        Task.__init__(self, parent, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings)
     # We don't actually need to spawn a thread since there is a thread spawned essentially just for _run()
-    def _run(self, rusagelog=None): self.target(*self.args, **self.kwargs)
+    def _run(self): self.target(*self.args, **self.kwargs)
+    def current_usage(self): raise NotImplementedError()
+    def terminate(self): raise NotImplementedError()
+    def kill(self): raise NotImplementedError()
+
 class TaskUsingPythonProcess(Task):
     """
     Create a new Task that calls a Python function in a different process.
@@ -261,7 +387,7 @@ class TaskUsingPythonProcess(Task):
         @property
         def pid(self): return self.proc.pid
         def wait(self): self.proc.join(); return self.proc.exitcode
-    def __init__(self, target, args, kwargs, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
+    def __init__(self, parent, target, args, kwargs, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
         """
         The target must be a callable object (like a function). The args and
         kwargs are a tuple and dictionary that are given to the target function
@@ -278,9 +404,9 @@ class TaskUsingPythonProcess(Task):
         kwargs = ""
         for k,v in self.kwargs: kwargs += ", %s = %s" % (str(k), str(v))
         if len(self.args) == 0: kwargs = kwargs.lstrip(', ')
-        Task.__init__(self, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings, wd)
-    def _run(self, rusagelog=None):
-        self._run_proc(TaskUsingPythonProcess.Popen(self.target, self.args, self.kwargs, self.wd, self.stdin, self.stdout, sys.stderr), rusagelog)
+        Task.__init__(self, parent, "%s(%s%s)" % (self.target.__name__, ", ".join(self.args), kwargs), inputs, outputs, settings, wd)
+    def _run(self):
+        self._run_proc(TaskUsingPythonProcess.Popen(self.target, self.args, self.kwargs, self.wd, self.stdin, self.stdout, sys.stderr))
 
 class Tasks:
     """
@@ -319,7 +445,7 @@ class Tasks:
         self.all_tasks  = {} # all tasks, indexed by their string representation
         self.__conditional = None
 
-    def add(self, cmd, inputs=(), outputs=(), settings=(), wd=None, stdin=None, stdout=None, stderr=None):
+    def add(self, cmd, inputs=(), outputs=(), settings=(), can_run_on_cluster=False, wd=None, stdin=None, stdout=None, stderr=None):
         """
         Adds a new task. The task does not run until sometime after run() is called.
           cmd
@@ -330,6 +456,8 @@ class Tasks:
             individual tasks and if individual tasks can be skipped or not; each can be an empty
             list implying the task generates files without any file input, performs cleanup tasks,
             or only uses files
+          can_run_on_cluster
+            set to true if this process should/can run on a cluster if available
           wd
             the working directory of the task, by default it is the working directory of the whole
             set of tasks (which defaults to the current working directory)
@@ -338,7 +466,11 @@ class Tasks:
             (positive int) or a filename; stderr can also be subprocess.STDOUT if it will output to
             stdout; by default they are the same as the this process
         """
-        return self._add(TaskUsingProcess(cmd, inputs, outputs, settings, wd if wd else self.workingdir))
+        if can_run_on_cluster:
+            t= TaskUsingCluster(self, cmd, inputs, outputs, settings, wd if wd else self.workingdir)
+        else:
+            t = TaskUsingProcess(self, cmd, inputs, outputs, settings, wd if wd else self.workingdir)
+        return self._add(t)
     def add_func(self, target, args=(), kwargs={}, inputs=(), outputs=(), settings=(), seperate_process=True, wd=None, stdin=None, stdout=None, stderr=None):
         """
         Adds a new task that is a Python function call. The task does not run until sometime after
@@ -364,11 +496,11 @@ class Tasks:
             stdout; by default they are the same as the this process
         """
         if seperate_process:
-            t = TaskUsingPythonProcess(target, args, kwargs, inputs, outputs, settings, wd if wd else self.workingdir)
+            t = TaskUsingPythonProcess(self, target, args, kwargs, inputs, outputs, settings, wd if wd else self.workingdir)
         elif wd:
             raise ValueError('Working-directory cannot be changed except for seperate processes')
         else:
-            t = TaskUsingPythonFunction(target, args, kwargs, inputs, outputs, settings)
+            t = TaskUsingPythonFunction(self, target, args, kwargs, inputs, outputs, settings)
         return self._add(t)
     def _add(self, task):
         """
@@ -436,7 +568,7 @@ class Tasks:
         print '=' * 80
         
         mem_sys = virtual_memory()
-        mem_task = Tasks.__get_mem_used_by_tree()
+        mem_task = get_mem_used_by_tree()
         mem_press = self.__mem_pressure
         mem_avail = mem_sys.available - max(mem_press - mem_task, 0)
         print 'Memory (GB): System: %d / %d    Tasks: %d [%d], Avail: %d' % (
@@ -464,14 +596,13 @@ class Tasks:
                 if len(text) > 60: text = text[:56] + '...' + text[-1]
                 real_mem = '? '
                 timings = ''
-                if hasattr(task, 'pid') and task.pid:
-                    try:
-                        p = Process(task.pid)
-                        real_mem = str(int(round(float(Tasks.__get_mem_used_by_tree(p)) / GB)))
-                        t = int(round(Tasks.__get_time_used_by_tree(p)))
-                        hours, mins, secs = t // (60*60), t // 60, t % 60
-                        timing = ('%d:%02d:%02d' % (hours, mins - hours * 60, secs)) if hours > 0 else ('%d:%02d' % (mins, secs))
-                    except: pass
+                try:
+                    real_mem, t = task.current_usage()
+                    real_mem = str(int(round(float(real_mem) / GB)))
+                    t = int(round(t))
+                    hours, mins, secs = t // (60*60), t // 60, t % 60
+                    timing = ('%d:%02d:%02d' % (hours, mins - hours * 60, secs)) if hours > 0 else ('%d:%02d' % (mins, secs))
+                except: pass
                 mem = str(int(round(float(task.mem_pressure) / GB)))
                 print '%-60s %3sGB [%3s] %7s' % (text, real_mem, mem, timing)
 
@@ -497,7 +628,7 @@ class Tasks:
         complete and then updates the information about errors, next, last, pressure, and running.
         """
         # Run the task and wait for it to finish
-        try: task._run(self.__rusagelog)
+        try: task._run()
         except Exception as e: err = e
         else:                  err = None
 
@@ -522,41 +653,6 @@ class Tasks:
             self.__running.remove(task)
             # Notify waiting threads
             self.__conditional.notify()
-
-    @staticmethod
-    def __get_mem_used_by_tree(proc = this_proc):
-        """
-        Gets the memory used by a process and all its children (RSS). If the process is not
-        provided, this process is used. The argument must be a pid or a psutils.Process object.
-        Return value is in bytes.
-        """
-        # This would be nice, but it turns out it crashes the whole program if the process finished between creating the list of children and getting the memory usage
-        # Adding "if p.is_running()" would help but still have a window for the process to finish before getting the memory usage
-        #return sum((p.get_memory_info()[0] for p in proc.get_children(True)), proc.get_memory_info()[0])
-        if isinstance(proc, (int, long)): proc = Process(proc) # was given a PID
-        mem = proc.get_memory_info()[0]
-        for p in proc.get_children(True):
-            try:
-                if p.is_running():
-                    mem += p.get_memory_info()[0]
-            except: pass
-        return mem
-
-    @staticmethod
-    def __get_time_used_by_tree(proc = this_proc):
-        """
-        Gets the CPU time used by a process and all its children (user+sys). If the process is not
-        provided, this process is used. The argument must be a pid or a psutils.Process object.
-        Return values is in seconds.
-        """
-        if isinstance(proc, (int, long)): proc = Process(proc) # was given a PID
-        time = sum(proc.get_cpu_times())
-        for p in proc.get_children(True):
-            try:
-                if p.is_running():
-                    time += sum(p.get_cpu_times())
-            except: pass
-        return time
 
     def __calc_next(self):
         """
@@ -601,7 +697,7 @@ class Tasks:
 
         # Get available CPU and memory
         avail_cpu = self.max_tasks_at_once - self.__cpu_pressure
-        avail_mem = virtual_memory().available - max(self.__mem_pressure - Tasks.__get_mem_used_by_tree(), 0)
+        avail_mem = virtual_memory().available - max(self.__mem_pressure - get_mem_used_by_tree(), 0)
 
         # First do a fast check to see if the very next task is doable
         # This should be very fast and will commonly be where the checking ends
@@ -624,9 +720,11 @@ class Tasks:
             return task
         except: pass
 
-    def run(self, verbose=False):
+    def run(self, cluster=None, verbose=False):
         """
         Runs all the tasks in a smart order with many at once. Will not return until all tasks are done.
+
+        Giving a cluster (as a Cluster object) means that the cluster is used for any tasks that are added with can_run_on_cluster=True.
         
         Setting verbose to True will cause the time and the command to print whenever a new command is about to start.
         """
@@ -639,6 +737,7 @@ class Tasks:
 
         try:
             # Create basic variables and lock
+            self._cluster = cluster
             self.__error = False
             self.__killing = False
             self.__conditional = Condition() # for locking access to Task.done, cpu_pressure, mem_pressure, next, last, log, and error
@@ -653,7 +752,7 @@ class Tasks:
                 if verbose: print "Skipping " + dc[20:].strip()
                 self.__log.write(dc+"\n")
             if verbose and len(done_tasks) > 0: print '-' * 80
-            self.__rusagelog = open(self.rusage_log, 'a', 1) if self.rusage_log else None
+            self._rusagelog = open(self.rusage_log, 'a', 1) if self.rusage_log else None
 
             # Calcualte the set of first and last tasks
             self.__calc_next() # These are the first tasks
@@ -664,7 +763,7 @@ class Tasks:
 
             # Get the initial pressures
             self.__cpu_pressure = 0
-            self.__mem_pressure = Tasks.__get_mem_used_by_tree() + 1*MB # assume that the creation of threads and everything will add some extra pressure
+            self.__mem_pressure = get_mem_used_by_tree() + 1*MB # assume that the creation of threads and everything will add some extra pressure
 
             # Set a signal handler
             try:
@@ -702,14 +801,14 @@ class Tasks:
             write_error("Terminating running tasks")
             with self.__conditional:
                 self.__killing = True
-                for p in (Process(t.pid) for t in self.__running if hasattr(t, 'pid') and t.pid):
-                    try: p.terminate()
+                for t in self.__running:
+                    try: t.terminate()
                     except: pass
                 secs = 0
                 while len(self.__running) > 0 and secs < 10:
                     self.__conditional.wait(1)
                     secs += 1
-                for p in (Process(t.pid) for t in self.__running if hasattr(t, 'pid') and t.pid):
+                for t in self.__running:
                     try: p.kill()
                     except: pass
 
@@ -719,14 +818,15 @@ class Tasks:
             if hasattr(self, '__log'):
                 self.__log.close()
                 del self.__log
-            if hasattr(self, '__rusagelog'):
-                if self.__rusagelog: self.__rusagelog.close()
-                del self.__rusagelog
+            if hasattr(self, '_rusagelog'):
+                if self._rusagelog: self._rusagelog.close()
+                del self._rusagelog
             if hasattr(self, '__cpu_pressure'): del self.__cpu_pressure
             if hasattr(self, '__mem_pressure'): del self.__mem_pressure
             if hasattr(self, '__running'): del self.__running
             if hasattr(self, '__next'): del self.__next
             self.__conditional = None
+            del self._cluster
             del self.__error
             del self.__killing
 

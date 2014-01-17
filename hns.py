@@ -103,7 +103,7 @@ def help_msg(err = 0, msg = None):
     from os.path import basename
     
     w = max(get_terminal_width(), 40)
-    tw = TextWrapper(width = w, subsequent_indent = ' '*20)
+    tw = TextWrapper(width = w, subsequent_indent = ' '*21)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
     print tw.fill("  %s [args] training.mrc training.mod full.mrc output.mod" % basename(argv[0]))
@@ -114,27 +114,56 @@ def help_msg(err = 0, msg = None):
     print tw.fill("  -w  --water-lvl=  The watershed water level parameter, probably <=0.02")
     print ""
     print "Optional algorithm parameters:"
-    print tw.fill("  -c  --contract=   The amount to contract contours by to make them inside the membranes")
-    print tw.fill("  -s  --sigma=      The amount of Gaussian blur to use, default is 1.0 while 0.0 turns off blurring")
-    print tw.fill("  -n  --num-trees=  Number of random forest trees, should be at least 100, default is 255 - larger will be slower")
-    print tw.fill("  -m  --mtry=       Number of features to use in each node in RF, should be <<85, default is sqrt(total features)")
-    print tw.fill("  -S  --samp-size=  Fraction of samples used in each node in RF, default is 0.7")
-    print tw.fill("  -pm-area-thresh0= Pre-merge area threshold #1, default is 50")
-    print tw.fill("  -pm-area-thresh1= Pre-merge area threshold #2, default is 200")
-    print tw.fill("  -pm-prop-thresh=  Pre-merge average probability threshold, default is 0.5")
+    print tw.fill("  -c  --contract=    The amount to contract contours by to make them inside the membranes")
+    print tw.fill("  -s  --sigma=       The amount of Gaussian blur to use, default is 1.0 while 0.0 turns off blurring")
+    print tw.fill("  -S  --chm-nstage=  The number of stages of processing to perform during CHM segmentation, default is 2")
+    print tw.fill("  -L  --chm-nlevel=  The number of levels of processing to perform during each stage of CHM segmentation, default is 4")
+    print tw.fill("  -O  --chm-overlap= The overlap of the blocks used when CHM testing specified as a single number or two numbers (for X and Y), default is 100x100")
+    print tw.fill("  --num-trees=       Number of random forest trees, should be at least 100, default is 255 - larger will be slower")
+    print tw.fill("  --mtry=            Number of features to use in each node in RF, should be <<85, default is sqrt(total features)")
+    print tw.fill("  --samp-size=       Fraction of samples used in each node in RF, default is 0.7")
+    print tw.fill("  --pm-area-thresh0= Pre-merge area threshold #1, default is 50")
+    print tw.fill("  --pm-area-thresh1= Pre-merge area threshold #2, default is 200")
+    print tw.fill("  --pm-prop-thresh=  Pre-merge average probability threshold, default is 0.5")
     print ""
     print "Other optional arguments:"
-    print tw.fill("  -h  --help       Display this help")
-    print tw.fill("  -t  --temp=      Set temporary directory, default value is ./temp")
-    print tw.fill("  -j  --jobs=      Maximum number of jobs to do at once, default is num of processors")
-    print tw.fill("  -u  --rusage=    Save the resources usage (memory and time) for each run process to a file [not available on Windows]")
+    print tw.fill("  -h  --help         Display this help")
+    print tw.fill("  -t  --temp=        Set temporary directory, default value is ./temp")
+    print tw.fill("  -j  --jobs=        Maximum number of jobs to do at once, default is num of processors")
+    print tw.fill("  -u  --rusage=      Save the resources usage (memory and time) for each run process to a file")
+    print tw.fill("  -C  --cluster=     Use the cluster specified by the file for some operations, defaults to running everything locally")
     exit(err)
 
 def die(err, msg):
     print >> stderr, msg
     exit(err)
 
+
+
+inf = float("inf")
+def __get_float_err(name, range):
+    lo_inf, hi_inf = range[0] == -inf, range[1] == inf
+    if lo_inf and hi_inf: return "'%s' must be a floating-point number" % (name)
+    elif lo_inf: return "'%s' must be a floating-point number less than or equal to %f" % (name, range[1])
+    elif hi_inf: return "'%s' must be a floating-point number greater than or equal to %f" % (name, range[0])
+    return "'%s' must be a floating-point number between %f and %f" % (name, range[0], range[1])
     
+def get_float(o, a, options, name, old_value, ref, range=(-inf, inf)): # range is inclusive
+    if o not in options: return False
+    if old_value != None: help_msg(2, "Must be only one '%s' argument" % name)
+    try: x = float(a)
+    except: help_msg(2, __get_float_err(name,range))
+    if isnan(x) or x < range[0] or x > range[1]: help_msg(2, __get_float_err(name,range))
+    ref[0] = x
+    return True
+def get_int_pos(o, a, options, name, old_value, ref, max_val = -1):
+    if o not in options: return False
+    if old_value != None: help_msg(2, "Must be only one '%s' argument" % name)
+    if not a.isdigit() or int(a) <= 0: help_msg(2, "'%s' must be a positive integer" % name)
+    if max_val > 0 and int(a) > max_value: help_msg(2, "'%s' must be a positive integer less than or equal to %d" % (name, max_value))
+    ref[0] = int(a)
+    return True
+
 
 if __name__ == "__main__":
     from getopt import getopt, error as getopt_error
@@ -149,9 +178,10 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
 
     try:
-        opts, args = getopt(argv[1:], "ht:j:u:w:c:s:n:m:S:",
-                            ["help", "temp=", "jobs=", "rusage=",
-                             "water-lvl=", "contract=", "sigma=", "num-trees=", "mtry=", "samp-size=", "pm-area-thresh0=", "pm-area-thresh1=", "pm-prop-thresh="
+        opts, args = getopt(argv[1:], "ht:j:u:C:w:c:s:S:L:O:",
+                            ["help", "temp=", "jobs=", "rusage=", "cluster=",
+                             "water-lvl=", "contract=", "sigma=", "chm-nstage=", "chm-nlevel=", "chm-overlap=",
+                             "num-trees=", "mtry=", "samp-size=", "pm-area-thresh0=", "pm-area-thresh1=", "pm-prop-thresh="
                              ])
     except getopt_error, msg: help_msg(2, msg)
 
@@ -159,77 +189,60 @@ if __name__ == "__main__":
     temp = None
     jobs = None
     rusage_log = None
+    cluster = None
     wl = None
     contract = None
     sigma = None
+    chm_nstage = None
+    chm_nlevel = None
+    chm_overlap = None
     treeNum = None
     mtry = None
     sampSize = None
     areaThreshold0 = None
     areaThreshold1 = None
     probThreshold = None
+    ref = [0]
     for o,a in opts:
-        if o == "-h" or o == "--help":
-            help_msg()
+        if o == "-h" or o == "--help":    help_msg()
         elif o == "-t" or o == "--temp":
-            if temp != None: help_msg(2, "Must be only one temp argument")
+            if temp != None: help_msg(2, "Must be only one 'temp' argument")
             temp = realpath(a)
-        elif o == "-j" or o == "--jobs":
-            if jobs != None: help_msg(2, "Must be only one jobs argument")
-            if not a.isdigit() or int(a) == 0: help_msg(2, "Number of jobs must be a positive integer")
-            jobs = int(a)
+        elif get_int_pos(o, a, ("-j", "--jobs="), "jobs", jobs, ref): jobs = ref[0]
         elif o == "-u" or o == "--rusage":
-            if rusage_log != None: help_msg(2, "Must be only one rusage argument")
+            if rusage_log != None: help_msg(2, "Must be only one 'rusage' argument")
             try:
                 from os_ext import wait4 # make sure wait4 is available
                 rusage_log = realpath(a)
             except ImportError:
-                print >> stderr, "Warning: System does not support recording resource usage, rusage argument ignored."
+                print >> stderr, "Warning: System does not support recording resource usage, 'rusage' argument ignored."
+        elif o == "-C" or o == "--cluster":
+            if cluster != None: help_msg(2, "Must be only one 'cluster' argument")
+            try: from cluster import Cluster
+            except ImportError: print >> stderr, "Warning: Cluster service requires the SAGA Python module. See saga-project.github.io. Cluster will not be used."
+            try: cluster = Cluster(a)
+            except Exception:   print >> stderr, "Warning: Cluster information could not be read. Cluster will not be used."
 ##        elif o == "-z":
 ##            if z != None: die("Must be only one z argument", 2)
 ##            z = [int(s) for s in a.split(',') if s.isdigit()]
-##            if len(z) != 0 or z[1] < z[0]: help_msg(2, "The z argument must be in the form of #,# where # are non-negative integers")
-        elif o == "-w" or o == "--water-lvl":
-            if wl != None: help_msg(2, "Must be only one water-lvl argument")
-            try: wl = float(a)
-            except: help_msg(2, "Water-lvl must be a floating-point number from 0.0 to 1.0")
-            if wl <= 0 or wl >= 1 or isnan(wl): help_msg(2, "Water-lvl must be a floating-point number from 0.0 to 1.0")
-        elif o == "-c" or o == "--contract":
-            if contract != None: help_msg(2, "Must be only one contract argument")
-            try: contract = float(a)
-            except: help_msg(2, "Contract must be a floating-point number")
-            if isnan(contract): help_msg(2, "Contract must be a floating-point number")
-        elif o == "-s" or o == "--sigma":
-            if sigma != None: help_msg(2, "Must be only one sigma argument")
-            try: sigma = float(a)
-            except: help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
-            if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
-        elif o == "-n" or o == "--num-trees":
-            if treeNum != None: help_msg(2, "Must be only one num-trees argument")
-            if not a.isdigit() or int(a) == 0: help_msg(2, "num-trees must be a positive integer")
-            treeNum = int(a)
-        elif o == "-m" or o == "--mtry":
-            if mtry != None: help_msg(2, "Must be only one mtry argument")
-            if not a.isdigit() or not (0 < int(a) < 40): help_msg(2, "mtry must be a positive integer much less than 85")
-            mtry = int(a)
-        elif o == "-S" or o == "--samp-size":
-            if sampSize != None: help_msg(2, "Must be only one samp-size argument")
-            try: sampSize = float(a)
-            except: help_msg(2, "samp-size must be a floating-point number between 0.0 and 1.0")
-            if not (0 <= sampSize <= 1) or isnan(sampSize): help_msg(2, "samp-size must be a floating-point number between 0.0 and 1.0")
-        elif o == "--pm-area-thresh0=":
-            if areaThreshold0 != None: help_msg(2, "Must be only one pm-area-thresh0 argument")
-            if not a.isdigit() or 0 >= int(a): help_msg(2, "pm-area-thresh0 must be a positive integer")
-            areaThreshold0 = int(a)
-        elif o == "--pm-area-thresh1=":
-            if areaThreshold1 != None: help_msg(2, "Must be only one pm-area-thresh1 argument")
-            if not a.isdigit() or 0 >= int(a): help_msg(2, "pm-area-thresh1 must be a positive integer")
-            areaThreshold1 = int(a)
-        elif o == "--pm-prop-thresh=":
-            if probThreshold != None: help_msg(2, "Must be only one pm-prop-thresh argument")
-            try: probThreshold = float(a)
-            except: help_msg(2, "pm-prop-thresh must be a floating-point number between 0.0 and 1.0")
-            if not (0 <= probThreshold <= 1) or isnan(probThreshold): help_msg(2, "pm-prop-thresh must be a floating-point number between 0.0 and 1.0")
+##            if len(z) != 2 or z[1] < z[0]: help_msg(2, "The 'z' argument must be in the form of #,# where # are non-negative integers")
+        elif get_float  (o, a, ("-w","--water-lvl"  ), "water-lvl",       wl,             ref, (0.0, 1.0)): wl             = ref[0]
+        elif get_float  (o, a, ("-c","--contract"   ), "contract",        contract,       ref            ): contract       = ref[0]
+        elif get_float  (o, a, ("-s","--sigma"      ), "sigma",           sigma,          ref, (0.0, inf)): sigma          = ref[0]
+        elif get_int_pos(o, a, ("-S","--chm-nstage" ), "chm-nstage",      chm_nstage,     ref            ): chm_nstage     = ref[0]
+        elif get_int_pos(o, a, ("-L","--chm-nlevel" ), "chm-nlevel",      chm_nlevel,     ref            ): chm_nlevel     = ref[0]
+        elif o == "-O" or o == "--chm-overlap":
+            if chm_overlap != None: die("Must be only one 'chm_overlap' argument", 2)
+            parts = a.split('x')
+            if len(parts) > 2 or not all(x.isdigit() for x in parts): help_msg(2, "The 'chm_overlap' argument must be either a single non-negative integer or two in the form #x#")
+            chm_overlap = (int(parts[0]), int(parts[len(parts) - 1]))
+            if chm_overlap[0] < 0 or chm_overlap[1] < 0: help_msg(2, "The 'chm_overlap' argument must be either a single non-negative integer or two in the form #x#")
+        elif get_int_pos(o, a, ("--num-trees",      ), "num-trees",       treeNum,        ref            ): treeNum        = ref[0]
+        elif get_int_pos(o, a, ("--mtry",           ), "mtry",            mtry,           ref, 40        ): treeNum        = ref[0]
+        elif get_float  (o, a, ("--samp-size",      ), "samp-size",       sampSize,       ref, (0.0, 1.0)): sampSize       = ref[0]
+        elif get_int_pos(o, a, ("--pm-area-thresh0",), "pm-area-thresh0", areaThreshold0, ref            ): areaThreshold0 = ref[0]
+        elif get_int_pos(o, a, ("--pm-area-thresh1",), "pm-area-thresh1", areaThreshold1, ref            ): areaThreshold1 = ref[0]
+        elif get_float  (o, a, ("--pm-prop-thresh" ,), "pm-prop-thresh",  probThreshold,  ref, (0.0, 1.0)): probThreshold  = ref[0]
 
     # Check the MRC/MOD arguments
     if len(args) != 4: help_msg(2, "You need to provide a training MRC and MOD file along with a full dataset MRC file as arguments")
@@ -247,14 +260,18 @@ if __name__ == "__main__":
     except BaseException as e: help_msg(2, "Failed to open full dataset MRC file: " + str(e))
         
     # Check the required arguments and set defaults for optional args
-    if wl       == None: help_msg(2, "water-lvl is a required argument")
-    #if jobs     != None: ... # dealt with later
-    #if rusage_log == None: # None means no log
-    if contract == None: contract = 0
-    if sigma    == None: sigma = 1.0
-    if treeNum  == None: treeNum = 255
-    if mtry     == None: mtry = 0 # will make the program calculate the proper default
-    if sampSize == None: sampSize = 0.70
+    if wl          == None: help_msg(2, "water-lvl is a required argument")
+    #if jobs        != None: ... # dealt with later
+    #if rusage_log  == None: # None means no log
+    #if cluster     == None: # None means no custer used
+    if contract    == None: contract = 0
+    if sigma       == None: sigma = 1.0
+    if chm_nstage  == None: chm_nstage = 2
+    if chm_nlevel  == None: chm_nlevel = 4
+    if chm_overlap == None: chm_overlap = (100, 100)
+    if treeNum     == None: treeNum = 255
+    if mtry        == None: mtry = 0 # will make the program calculate the actual proper default
+    if sampSize    == None: sampSize = 0.70
     if areaThreshold0 == None: areaThreshold0 = 50
     if areaThreshold1 == None: areaThreshold1 = 200
     if probThreshold  == None: probThreshold  = 0.50
@@ -274,6 +291,8 @@ if __name__ == "__main__":
     bytes_t = mrc_t.section_full_data_size
     pxls_f  = mrc_f.section_size
     bytes_f = mrc_f.section_full_data_size
+    chm_block_size = '%dx%d' % (mrc_t.nx, mrc_t.ny)
+    chm_overlap    = '%dx%d' % chm_overlap
     zs_t = range(len(mrc_t))
     zs_f = range(len(mrc_f))
     mrc_t.close()
@@ -314,8 +333,6 @@ if __name__ == "__main__":
     t_s_bw_tif = [join(t_s_bw_tif_folder,  i) for i in tifs_t] # training labels (TIFF-black and white)
     t_s_clr_mha= [join(t_s_clr_mha_folder, i) for i in mhas_t] # training labels (MHA-colored)
 
-    chm_nstage = 2 # TODO: these should be passable to the CHM_train command
-    chm_nlevel = 4
     chm_working_folder = 'chm_temp'
     chm_model_files = ([join(chm_working_folder, 'param.mat'), join(chm_working_folder, 'MODEL_level0_stage%d.mat' % chm_nstage)] +
                        [join(chm_working_folder, 'MODEL_level%d_stage%d.mat' % (l,s)) for s, l in product(xrange(1,chm_nstage), xrange(chm_nlevel+1))])
@@ -378,8 +395,8 @@ if __name__ == "__main__":
     least_jobs = max(jobs - most_jobs, 1)
 
     ### Convert input files ###
-    memseg.add(('mrc2stack', mrc_f_filename, f_d_tif_folder), mrc_f_filename, f_d_tif).pressure(mem = 20*MB + 2*bytes_f)
-    memseg.add(('mrc2stack', mrc_t_filename, t_d_tif_folder), mrc_t_filename, t_d_tif).pressure(mem = 20*MB + 2*bytes_t)
+    memseg.add(('mrc2stack', '-etif', mrc_f_filename, f_d_tif_folder), mrc_f_filename, f_d_tif).pressure(mem = 20*MB + 2*bytes_f)
+    memseg.add(('mrc2stack', '-etif', mrc_t_filename, t_d_tif_folder), mrc_t_filename, t_d_tif).pressure(mem = 20*MB + 2*bytes_t)
 
     memseg.add(('mrc2stack', '-emha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), mrc_f_filename, f_d_blur, 'sigma').pressure(mem = 20*MB + bytes_f + 4*pxls_f)
     memseg.add(('mrc2stack', '-emha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), mrc_t_filename, t_d_blur, 'sigma').pressure(mem = 20*MB + bytes_t + 4*pxls_t)
@@ -393,8 +410,8 @@ if __name__ == "__main__":
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
     #memseg.add(('CHMSEG', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), join(f_d_tif_folder, f_chm_files), f_p_tif_folder, chm_working_folder), t_d_tif+t_s_bw_tif+f_d_tif, f_p_tif+t_p_mat)
-    memseg.add(('CHM_train', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), chm_working_folder), t_d_tif+t_s_bw_tif, t_p_mat+chm_model_files).pressure(mem=75*GB, cpu=least_jobs)
-    [memseg.add(('CHM_test', fd, f_p_tif_folder, '-s', '-m', chm_working_folder), [fd] + chm_model_files, fp).pressure(mem=10*GB) for fd, fp in zip(f_d_tif, f_p_tif)]
+    memseg.add(('CHM_train', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), chm_working_folder, chm_nstage, chm_nlevel), t_d_tif+t_s_bw_tif, t_p_mat+chm_model_files, 'chm-nstage', 'chm-nlevel').pressure(mem=75*GB, cpu=least_jobs)
+    [memseg.add(('CHM_test', fd, f_p_tif_folder, '-s', '-m', chm_working_folder, '-b', chm_block_size, '-o', chm_overlap), [fd] + chm_model_files, fp, 'chm-overlap', can_run_on_cluster=True).pressure(mem=10*GB) for fd, fp in zip(f_d_tif, f_p_tif)]
     
     [memseg.add(('conv_img',            mat, mha), mat, mha).pressure(mem = 20*MB + 6*pxls_t) for mat, mha in izip(t_p_mat, t_p_mha)]
     [memseg.add(('conv_img', '-mfloat', tif, mha), tif, mha).pressure(mem = 20*MB + 6*pxls_f) for tif, mha in izip(f_p_tif, f_p_mha)]
@@ -428,7 +445,7 @@ if __name__ == "__main__":
     #   [4] rawImageName
     #   [5] pbImageName
     #   [6] textonDictFileName (skipping this will largely accelerate the program but may worsen the accuracy by a little)
-    [memseg.add(('hnsGenBoundaryFeatures', iseg, t, s, db, p, textondict, bcf), (iseg, t, s, db, p, textondict), bcf) for iseg, t, s, db, p, bcf in izip(t_is2, t_tree, t_sal, t_d_blur, t_p_mha, t_bcf)]
+    [memseg.add(('hnsGenBoundaryFeatures', iseg, t, s, db, p, textondict, bcf), (iseg, t, s, db, p, textondict), bcf, can_run_on_cluster=True) for iseg, t, s, db, p, bcf in izip(t_is2, t_tree, t_sal, t_d_blur, t_p_mha, t_bcf)]
     # 6 - Training boundary label generation
     [memseg.add(('hnsGenBoundaryLabels', iseg, t, l, bcl), (iseg, t, l), bcl) for iseg, t, l, bcl in izip(t_is2, t_tree, t_s_clr_mha, t_bcl)]
     # 7 - Training Data Generation
@@ -443,7 +460,7 @@ if __name__ == "__main__":
     # 4 - Full dataset merge generation
     [memseg.add(('hnsGenMerges', iseg, pb, t, s), (iseg, pb), (t, s)) for iseg, pb, t, s in izip(f_is2, f_p_blur, f_tree, f_sal)]
     # 5 - Full dataset boundary feature generation (see notes above)
-    [memseg.add(('hnsGenBoundaryFeatures', iseg, t, s, db, p, textondict, bcf), (iseg, t, s, db, p, textondict), bcf) for iseg, t, s, db, p, bcf in izip(f_is2, f_tree, f_sal, f_d_blur, f_p_mha, f_bcf)]
+    [memseg.add(('hnsGenBoundaryFeatures', iseg, t, s, db, p, textondict, bcf), (iseg, t, s, db, p, textondict), bcf, can_run_on_cluster=True) for iseg, t, s, db, p, bcf in izip(f_is2, f_tree, f_sal, f_d_blur, f_p_mha, f_bcf)]
     # 8 - Generate Predictions
     rf_predict_procs(memseg, bcmodel, f_bcf, f_bcp)
     # 9 - Segment
@@ -460,4 +477,7 @@ if __name__ == "__main__":
 
 
     # Run!
-    memseg.run(verbose = True)
+    memseg.run(cluster=cluster, verbose=True)
+
+    # Cleanup
+    if cluster: cluster.close()
