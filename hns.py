@@ -386,8 +386,10 @@ if __name__ == "__main__":
 
     ### Create the task ###
     memseg = Tasks('memseg.log',
-                   {'waterlevel':wl,'pm-area-threshold-0':areaThreshold0,'pm-area-threshold-1':areaThreshold1,'pm-prob-threshold':probThreshold,
-                    'contract':contract,'sigma':sigma,'number-of-trees':treeNum,'mtry':mtry,'sample-size':sampSize},
+                   {'contract':contract,'sigma':sigma,
+                    'chm-nstage':chm_nstage,'chm-nlevel':chm_nlevel,'chm-overlap':chm_overlap,
+                    'waterlevel':wl,'pm-area-threshold-0':areaThreshold0,'pm-area-threshold-1':areaThreshold1,'pm-prob-threshold':probThreshold,
+                    'number-of-trees':treeNum,'mtry':mtry,'sample-size':sampSize},
                    max_tasks_at_once = jobs, workingdir = temp,
                    rusage_log = rusage_log)
     jobs = memseg.max_tasks_at_once # if jobs was None, now it is cpu_count(), otherwise unchanged
