@@ -176,7 +176,7 @@ def imread(filename):
     """
     from os.path import splitext
     from scipy.misc import imread
-    from metafile import imsave_mha, imsave_mhd
+    from metafile import imread_mha, imread_mhd
 
     ext = splitext(filename)[1].lower()
     if ext == '.mat':   return imread_mat(filename)
