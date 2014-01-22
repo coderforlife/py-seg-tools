@@ -8,7 +8,7 @@ Converts an MRC file to an image stack. Runs either as a command line program or
 as an importable function.
 """
 
-def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, flip = False, sigma = 0.0):
+def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, flip = False, sigma = 0.0, threshold = None):
     """
     Converts an MRC file to an image stack
 
@@ -17,19 +17,20 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
     out_dir  -- the directory to save the stack to
     
     Optional Arguments:
-    indxs    -- the indices of slices to save, default is to use all slices
-    basename -- the template name to use for images, needs to have a %d to be replaced by slice number, default is "%04d.png"
-    mode     -- output mode, one of:
-                    'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
-                    'label' to output a consecutively numbered image using connected components
-                    'relabel' to output a consecutively numbered image from an already labeled image
-                    None (default) to perform no conversion
-    flip     -- if True then each image is flipped top to bottom before saving
-    sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
+    indxs     -- the indices of slices to save, default is to use all slices
+    basename  -- the template name to use for images, needs to have a %d to be replaced by slice number, default is "%04d.png"
+    mode      -- output mode, one of:
+                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
+                     'label' to output a consecutively numbered image using connected components
+                     'relabel' to output a consecutively numbered image from an already labeled image
+                     None (default) to perform no conversion
+    flip      -- if True then each image is flipped top to bottom before saving
+    sigma     -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
+    threshold -- if provided, will convert image to black and white, see bw function for values (negative vs. positive)
     """
     from os.path import join
     from mrc import MRC
-    from images import flip_up_down, gauss_blur, float_image, label, relabel, imsave
+    from images import bw, flip_up_down, gauss_blur, float_image, label, relabel, imsave
     from utils import make_dir
 
     float_it = False
@@ -45,6 +46,7 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
     sigma = float(sigma)
     if indxs == None:
         for i, sec in enumerate(mrc):
+            if threshold != None: sec = bw(sec, threshold)
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
@@ -54,6 +56,7 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
     else:
         for i in indxs:
             sec = mrc[i]
+            if threshold != None: sec = bw(sec, threshold)
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
@@ -84,6 +87,7 @@ def help_msg(err = 0, msg = None):
     print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
     print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering an image, default is none")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
+    print tw.fill("  -t  --thresh=   Convert image to black and white with the given threshold (values below are 0, values above and included are 1 - reversed with negative values)")
     exit(err)
         
 if __name__ == "__main__":
@@ -98,7 +102,7 @@ if __name__ == "__main__":
     
     if len(argv) < 2: help_msg(1)
     
-    try: opts, args = getopt(argv[1:], "hfe:b:x:y:z:m:s:", ["help", "flip", "ext=", "base=", "mode=", "sigma="])
+    try: opts, args = getopt(argv[1:], "hfe:b:x:y:z:m:s:t:", ["help", "flip", "ext=", "base=", "mode=", "sigma=", "thresh="])
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
@@ -110,6 +114,7 @@ if __name__ == "__main__":
     basename = None
     mode = None
     sigma = None
+    threshold = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
@@ -159,6 +164,10 @@ if __name__ == "__main__":
             try: sigma = float(a)
             except: help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
+        elif o == "-t" or o == "--thresh":
+            if threshold != None: help_msg(2, "Must be only one threshold argument")
+            if !a.isdigit(): help_msg(2, "Threshold must be an integer")
+            threshold = a
 
     # Make sure paths are good
     if len(args) != 2: help_msg(2, "You need to provide an MRC and image output directory as arguments")
@@ -182,4 +191,4 @@ if __name__ == "__main__":
         if min_z < 0 or max_z >= mrc.nz: help_msg(2, "Invalid z argument supplied")
 
     # Do the actual work!
-    mrc2stack(mrc.view(x, y, (0, mrc.nz - 1)), out_dir, z, basename+"."+ext, mode, flip, sigma)
+    mrc2stack(mrc.view(x, y, (0, mrc.nz - 1)), out_dir, z, basename+"."+ext, mode, flip, sigma, threshold)

@@ -8,24 +8,25 @@ Converts an image file to a new format, possibly changing the image 'mode'. Runs
 either as a command line program or as an importable function.
 """
 
-def conv_img(input, output, mode = None, flip = False, sigma = 0.0):
+def conv_img(input, output, mode = None, flip = False, sigma = 0.0, threshold = None):
     """
     Converts an image file.
 
     Arguments:
-    input    -- the input filepath
-    output   -- the otuput filepath
+    input     -- the input filepath
+    output    -- the otuput filepath
     
     Optional Arguments:
-    mode     -- output mode, one of:
-                    'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
-                    'label' to output a consecutively numbered image using connected components
-                    'relabel' to output a consecutively numbered image from an already labeled image
-                    None (default) to perform no conversion
-    flip     -- if True then image is flipped top to bottom before saving
-    sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
+    mode      -- output mode, one of:
+                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
+                     'label' to output a consecutively numbered image using connected components
+                     'relabel' to output a consecutively numbered image from an already labeled image
+                     None (default) to perform no conversion
+    flip      -- if True then image is flipped top to bottom before saving
+    sigma     -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
+    threshold -- if provided, will convert image to black and white, see bw function for values (negative vs. positive)
     """
-    from images import imread, flip_up_down, gauss_blur, float_image, label, relabel, imsave
+    from images import imread, bw, flip_up_down, gauss_blur, float_image, label, relabel, imsave
 
     float_it = False
     relabel_it = False
@@ -35,6 +36,7 @@ def conv_img(input, output, mode = None, flip = False, sigma = 0.0):
     elif mode == 'relabel': relabel_it = True
     elif mode != None: raise ValueError("Mode must be 'float', 'label', 'relabel', or None")
     im = imread(input)
+    if threshold != None: sec = bw(sec, threshold)
     if flip: sec = flip_up_down(sec)
     if sigma: im = gauss_blur(im, sigma)
     if float_it: im = float_image(im)
@@ -60,6 +62,7 @@ def help_msg(err = 0, msg = None):
     print tw.fill("  -f  --flip      If given then image is flipped top to bottom before saving")
     print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering an image, default is none")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
+    print tw.fill("  -t  --thresh=   Convert image to black and white with the given threshold (values below are 0, values above and included are 1 - reversed with negative values)")
     exit(err)
         
 if __name__ == "__main__":
@@ -71,13 +74,14 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
 
     try:
-        opts, args = getopt(argv[1:], "hfm:s:", ["help", "flip", "mode=", "sigma="])
+        opts, args = getopt(argv[1:], "hfm:s:t:", ["help", "flip", "mode=", "sigma=", "thresh="])
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
     flip = False
     mode = None
     sigma = None
+    threshold = None
     for o,a in opts:
         if o == "-h" or o == "--help":
             help_msg()
@@ -93,6 +97,10 @@ if __name__ == "__main__":
             try: sigma = float(a)
             except: help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
+        elif o == "-t" or o == "--thresh":
+            if threshold != None: help_msg(2, "Must be only one threshold argument")
+            if !a.isdigit(): help_msg(2, "Threshold must be an integer")
+            threshold = a
 
     # Make sure path are good
     if len(args) != 2: help_msg(2, "You need to provide an input and output file as arguments")
@@ -104,4 +112,4 @@ if __name__ == "__main__":
     if sigma == None: sigma = 0.0
 
     # Do the actual work!
-    conv_img(input, output, mode, flip, sigma)
+    conv_img(input, output, mode, flip, sigma, threshold)

@@ -9,7 +9,7 @@ __all__ = [
     'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'gauss_blur', 'flip_up_down', 'label', 'relabel', 'float_image', 'imread', 'imsave', 'imread_mat',
+    'gauss_blur', 'flip_up_down', 'bw', 'label', 'relabel', 'float_image', 'imread', 'imsave', 'imread_mat',
     ]
 
 # The image types we know about
@@ -51,6 +51,15 @@ def flip_up_down(im):
     """
     from numpy import flipud
     return flipud(im)
+
+def bw(im, threshold=1):
+    """
+    Convert image to black and white. The threshold is used to determine what is made black and white.
+    If positive, every value at or above the threshold will be white and below it will be black.
+    If negative, every value at or below the magnitude of the threshold will be white.
+    If 0, the result will just be black.
+    """
+    return (im>=threshold if threshold>0 else im<-threshold).astype(IM_BYTE, copy=False)
 
 def label(im):
     """
