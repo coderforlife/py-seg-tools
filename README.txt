@@ -41,8 +41,9 @@ number). Flipping flips the image top to bottom when saving.
 
 For mrc2stack and conv_img you can also convert the data itself by using --mode
 (or -m) with one of the following:
- * 'float' - output a 32-bit floating-point number output scaled to 0.0-1.0
- * 'label' - output a 32-bit unsigned consecutively numbered label data image
+ * 'float'   - output a 32-bit floating-point number output scaled to 0.0-1.0
+ * 'label'   - output an consecutively numbered image using con. components
+ * 'relabel' - output an consecutively re-numbered label data image
 
 
 --- Conversion from MRC stack: mrc2stack ---
@@ -80,7 +81,8 @@ images.py. MRC class is currently not really documented.
 The utility functions (for more details see built-in Python help):
 	gauss_blur(im, sigma = 1.0) -- Blur an image using a Gaussian blur (requires SciPy)
 	flip_up_down(im)            -- Flips an image from top-bottom as a view (not a copy)
-	create_labels(im)           -- Creates a consecutively numbered IM_UINT image from an image
+	label(im)                   -- Creates a consecutively numbered image using connected components
+	relabel(im)                 -- Renumbers an image to be consecutively numbered
 	float_image(im, in_scale=None, out_scale=(0.0,1.0)) - Convert an image into a 32-bit floating-point image by scaling the data
 	imread(filename)            -- Read an image
 	imsave(filename, im)        -- Save an image

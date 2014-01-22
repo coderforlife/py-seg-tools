@@ -21,21 +21,24 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
     basename -- the template name to use for images, needs to have a %d to be replaced by slice number, default is "%04d.png"
     mode     -- output mode, one of:
                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
-                    'label' to output a consecutively numbered image for label data
+                    'label' to output a consecutively numbered image using connected components
+                    'relabel' to output a consecutively numbered image from an already labeled image
                     None (default) to perform no conversion
     flip     -- if True then each image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
     from os.path import join
     from mrc import MRC
-    from images import flip_up_down, gauss_blur, float_image, create_labels, imsave
+    from images import flip_up_down, gauss_blur, float_image, label, relabel, imsave
     from utils import make_dir
 
     float_it = False
+    relabel_it = False
     label_it = False
     if mode == 'float': float_it = True
     elif mode == 'label': label_it = True
-    elif mode != None: raise ValueError("Mode must be 'float', 'label', or None")
+    elif mode == 'relabel': relabel_it = True
+    elif mode != None: raise ValueError("Mode must be 'float', 'label', 'relabel', or None")
     if isinstance(mrc, basestring): mrc = MRC(mrc)
     if not make_dir(out_dir): raise IOError("Unable to create output directory")
     flip = bool(flip)
@@ -45,7 +48,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
-            elif label_it: sec = create_labels(sec)
+            elif label_it: im = label(sec)
+            elif relabel_it: im = relabel(sec)
             imsave(join(out_dir, basename % i), sec)
     else:
         for i in indxs:
@@ -53,7 +57,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
-            elif label_it: sec = create_labels(sec)
+            elif label_it: im = label(sec)
+            elif relabel_it: im = relabel(sec)
             imsave(join(out_dir, basename % i), sec)
 
 def help_msg(err = 0, msg = None):
@@ -77,7 +82,7 @@ def help_msg(err = 0, msg = None):
     print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
     print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
-    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering an image, default is none")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     exit(err)
         
@@ -148,7 +153,7 @@ if __name__ == "__main__":
         elif o == "-m" or o == "--mode":
             if mode != None: help_msg(2, "Must be only one mode argument")
             mode = a
-            if mode != 'float' and mode != 'label': help_msg(2, "Mode must be either 'float' or 'label'")
+            if mode != 'float' and mode != 'label' and mode != 'relabel': help_msg(2, "Mode must be either 'float', 'label', or 'relabel'")
         elif o == "-s" or o == "--sigma":
             if sigma != None: help_msg(2, "Must be only one sigma argument")
             try: sigma = float(a)

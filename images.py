@@ -9,7 +9,7 @@ __all__ = [
     'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'gauss_blur', 'flip_up_down', 'create_labels', 'float_image', 'imread', 'imsave', 'imread_mat',
+    'gauss_blur', 'flip_up_down', 'label', 'relabel', 'float_image', 'imread', 'imsave', 'imread_mat',
     ]
 
 # The image types we know about
@@ -52,14 +52,21 @@ def flip_up_down(im):
     from numpy import flipud
     return flipud(im)
 
-def create_labels(im):
+def label(im):
     """
-    Creates a consecutively numbered IM_UINT image from an image.
+    Performs a connected-components analysis on the provided image. 0s are considered background.
+    Any other values are connected into consecutively numbered contigous regions (where contigous is having a neighbor above, below, left, or right).
+    """
+    from scipy.ndimage import label
+    return label(im)[0] # [1] is number of regions, obtainable later with im.max()
+
+def relabel(im):
+    """
+    Creates a consecutively numbered image from an image that is already a set of labels.
     0 (or 0,0,0 for RGB) is the only value allowed to become 0 in the resulting image.
     Order is maintained. Note: Currently signed types where negative values are actually used are not supported.
     """
     # TODO: support using the same numbers across multiple slices
-    # TODO: support running connected components code on BW data ( scipy.ndimage.label() )
     from numpy import unique, insert, searchsorted
     # See scipy-lectures.github.io/advanced/image_processing/#measuring-objects-properties-ndimage-measurements for the unqiue/searchsorted method
     if is_rgb24(im):
@@ -80,7 +87,12 @@ def create_labels(im):
             if values[0] != 0: values = insert(values, 0, 0) # make sure only 0 becomes 0
             if im.dtype != IM_FLOAT and im.dtype != IM_DOUBLE and values[-1] == len(values) - 1: return im.astype(IM_UINT) # have consecutive numbers starting at 0 already, straight numeric conversion
     else: raise ValueError('im')
-    return searchsorted(values, im).astype(IM_UINT)
+    n = len(values)
+    if n < 256: dtype = IM_BYTE
+    elif n < 65536: dtype = IM_USHORT
+    elif n < 4294967296: dtype = IM_UINT
+    else: raise OverflowError()
+    return searchsorted(values, im).astype(dtype)
 
 def float_image(im, in_scale = None, out_scale = (0.0, 1.0)):
     """

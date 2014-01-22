@@ -19,23 +19,27 @@ def conv_img(input, output, mode = None, flip = False, sigma = 0.0):
     Optional Arguments:
     mode     -- output mode, one of:
                     'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
-                    'label' to output a consecutively numbered image for label data
+                    'label' to output a consecutively numbered image using connected components
+                    'relabel' to output a consecutively numbered image from an already labeled image
                     None (default) to perform no conversion
     flip     -- if True then image is flipped top to bottom before saving
     sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
     """
-    from images import imread, flip_up_down, gauss_blur, float_image, create_labels, imsave
+    from images import imread, flip_up_down, gauss_blur, float_image, label, relabel, imsave
 
     float_it = False
+    relabel_it = False
     label_it = False
     if mode == 'float': float_it = True
     elif mode == 'label': label_it = True
-    elif mode != None: raise ValueError("Mode must be 'float', 'label', or None")
+    elif mode == 'relabel': relabel_it = True
+    elif mode != None: raise ValueError("Mode must be 'float', 'label', 'relabel', or None")
     im = imread(input)
     if flip: sec = flip_up_down(sec)
     if sigma: im = gauss_blur(im, sigma)
     if float_it: im = float_image(im)
-    elif label_it: im = create_labels(im)
+    elif label_it: im = label(im)
+    elif relabel_it: im = relabel(im)
     imsave(output, im)
 
 def help_msg(err = 0, msg = None):
@@ -54,7 +58,7 @@ def help_msg(err = 0, msg = None):
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
     print tw.fill("  -f  --flip      If given then image is flipped top to bottom before saving")
-    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput or 'label' for consecutively numbered label data, default is neither")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering an image, default is none")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     exit(err)
         
@@ -83,7 +87,7 @@ if __name__ == "__main__":
         elif o == "-m" or o == "--mode":
             if mode != None: help_msg(2, "Must be only one mode argument")
             mode = a
-            if mode != 'float' and mode != 'label': help_msg(2, "Mode must be either 'float' or 'label'")
+            if mode != 'float' and mode != 'label' and mode != 'relabel': help_msg(2, "Mode must be either 'float', 'label', or 'relabel'")
         elif o == "-s" or o == "--sigma":
             if sigma != None: help_msg(2, "Must be only one sigma argument")
             try: sigma = float(a)
