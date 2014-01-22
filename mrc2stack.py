@@ -50,8 +50,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
-            elif label_it: im = label(sec)
-            elif relabel_it: im = relabel(sec)
+            elif label_it: sec = label(sec)
+            elif relabel_it: sec = relabel(sec)
             imsave(join(out_dir, basename % i), sec)
     else:
         for i in indxs:
@@ -60,8 +60,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
-            elif label_it: im = label(sec)
-            elif relabel_it: im = relabel(sec)
+            elif label_it: sec = label(sec)
+            elif relabel_it: sec = relabel(sec)
             imsave(join(out_dir, basename % i), sec)
 
 def help_msg(err = 0, msg = None):
@@ -166,8 +166,8 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
         elif o == "-t" or o == "--thresh":
             if threshold != None: help_msg(2, "Must be only one threshold argument")
-            if not a.isdigit(): help_msg(2, "Threshold must be an integer")
-            threshold = a
+            if not a.isdigit() and (len(a) <= 1 or a[0] != '-' or not a[1:].isdigit()): help_msg(2, "Threshold must be an integer")
+            threshold = int(a)
 
     # Make sure paths are good
     if len(args) != 2: help_msg(2, "You need to provide an MRC and image output directory as arguments")

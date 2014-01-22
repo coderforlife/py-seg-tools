@@ -36,8 +36,8 @@ def conv_img(input, output, mode = None, flip = False, sigma = 0.0, threshold = 
     elif mode == 'relabel': relabel_it = True
     elif mode != None: raise ValueError("Mode must be 'float', 'label', 'relabel', or None")
     im = imread(input)
-    if threshold != None: sec = bw(sec, threshold)
-    if flip: sec = flip_up_down(sec)
+    if threshold != None: im = bw(im, threshold)
+    if flip: im = flip_up_down(im)
     if sigma: im = gauss_blur(im, sigma)
     if float_it: im = float_image(im)
     elif label_it: im = label(im)
@@ -99,8 +99,8 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
         elif o == "-t" or o == "--thresh":
             if threshold != None: help_msg(2, "Must be only one threshold argument")
-            if not a.isdigit(): help_msg(2, "Threshold must be an integer")
-            threshold = a
+            if not a.isdigit() and (len(a) <= 1 or a[0] != '-' or not a[1:].isdigit()): help_msg(2, "Threshold must be an integer")
+            threshold = int(a)
 
     # Make sure path are good
     if len(args) != 2: help_msg(2, "You need to provide an input and output file as arguments")
