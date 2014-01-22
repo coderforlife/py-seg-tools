@@ -99,7 +99,7 @@ if __name__ == "__main__":
             if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
         elif o == "-t" or o == "--thresh":
             if threshold != None: help_msg(2, "Must be only one threshold argument")
-            if !a.isdigit(): help_msg(2, "Threshold must be an integer")
+            if not a.isdigit(): help_msg(2, "Threshold must be an integer")
             threshold = a
 
     # Make sure path are good
