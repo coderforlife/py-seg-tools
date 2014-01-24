@@ -59,7 +59,7 @@ def bw(im, threshold=1):
     If negative, every value at or below the magnitude of the threshold will be white.
     If 0, the result will just be black.
     """
-    return ((im>=threshold) if threshold>0 else (im<-threshold)).astype(IM_BYTE, copy=False)
+    return ((im>=threshold) if threshold>0 else (im<-threshold)).view(IM_BYTE)
 
 def label(im):
     """
