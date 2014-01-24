@@ -406,8 +406,8 @@ if __name__ == "__main__":
     memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), t_s_bw , 'contract').pressure(mem = 20*MB + bytes_t + 1*pxls_t) # TODO: support extra args
     memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), t_s_clr, 'contract').pressure(mem = 20*MB + bytes_t + 3*pxls_t) # TODO: support extra args
 
-    memseg.add(('mrc2stack', '-etif',            t_s_bw,  t_s_bw_tif_folder ), t_s_bw , t_s_bw_tif ).pressure(mem = 20*MB + 2*pxls_t)
-    memseg.add(('mrc2stack', '-emha', '-mlabel', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
+    memseg.add(('mrc2stack', '-etif',              t_s_bw,  t_s_bw_tif_folder ), t_s_bw , t_s_bw_tif ).pressure(mem = 20*MB + 2*pxls_t)
+    memseg.add(('mrc2stack', '-emha', '-mrelabel', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###

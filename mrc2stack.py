@@ -22,7 +22,7 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
     mode      -- output mode, one of:
                      'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
                      'label' to output a consecutively numbered image using connected components
-                     'relabel' to output a consecutively numbered image from an already labeled image
+                     'relabel' to output a consecutively numbered image from an already labeled image (correcting for missing or split regions)
                      None (default) to perform no conversion
     flip      -- if True then each image is flipped top to bottom before saving
     sigma     -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
@@ -50,8 +50,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
-            elif label_it: sec = label(sec)
-            elif relabel_it: sec = relabel(sec)
+            elif label_it: sec,n = label(sec)
+            elif relabel_it: sec,n = relabel(sec)
             imsave(join(out_dir, basename % i), sec)
     else:
         for i in indxs:
@@ -60,8 +60,8 @@ def mrc2stack(mrc, out_dir, indxs = None, basename = "%04d.png", mode = None, fl
             if flip: sec = flip_up_down(sec)
             if sigma != 0.0: sec = gauss_blur(sec, sigma)
             if float_it: sec = float_image(sec)
-            elif label_it: sec = label(sec)
-            elif relabel_it: sec = relabel(sec)
+            elif label_it: sec,n = label(sec)
+            elif relabel_it: sec,n = relabel(sec)
             imsave(join(out_dir, basename % i), sec)
 
 def help_msg(err = 0, msg = None):
@@ -85,7 +85,7 @@ def help_msg(err = 0, msg = None):
     print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
     print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
-    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering an image, default is none")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering a label image (correcting for missing or split regions), default is none")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     print tw.fill("  -t  --thresh=   Convert image to black and white with the given threshold (values below are 0, values above and included are 1 - reversed with negative values)")
     exit(err)

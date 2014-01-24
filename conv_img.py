@@ -20,7 +20,7 @@ def conv_img(input, output, mode = None, flip = False, sigma = 0.0, threshold = 
     mode      -- output mode, one of:
                      'float' to output a 32-bit floating-point number output scaled to 0.0-1.0
                      'label' to output a consecutively numbered image using connected components
-                     'relabel' to output a consecutively numbered image from an already labeled image
+                     'relabel' to output a consecutively numbered image from an already labeled image (correcting for missing or split regions)
                      None (default) to perform no conversion
     flip      -- if True then image is flipped top to bottom before saving
     sigma     -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
@@ -40,8 +40,8 @@ def conv_img(input, output, mode = None, flip = False, sigma = 0.0, threshold = 
     if flip: im = flip_up_down(im)
     if sigma: im = gauss_blur(im, sigma)
     if float_it: im = float_image(im)
-    elif label_it: im = label(im)
-    elif relabel_it: im = relabel(im)
+    elif label_it: im,n = label(im)
+    elif relabel_it: im,n = relabel(im)
     imsave(output, im)
 
 def help_msg(err = 0, msg = None):
@@ -60,7 +60,7 @@ def help_msg(err = 0, msg = None):
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
     print tw.fill("  -f  --flip      If given then image is flipped top to bottom before saving")
-    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering an image, default is none")
+    print tw.fill("  -m  --mode=     The output mode, either 'float' for scaled floating-point ouput, 'label' for consecutively numbered label data using connected components, or 'relabel' for renumbering a label image (correcting for missing or split regions), default is none")
     print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
     print tw.fill("  -t  --thresh=   Convert image to black and white with the given threshold (values below are 0, values above and included are 1 - reversed with negative values)")
     exit(err)

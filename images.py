@@ -3,13 +3,13 @@ Image utility functions for memseg and related conversion scritps.
 Utilizes numpy extensively. All images are numpy arrays in memory.
 """
 
-from numpy import dtype, int8, uint8, int16, int32, int64, uint16, uint32, uint64, float32, float64
+from numpy import dtype, iinfo, int8, uint8, int16, int32, int64, uint16, uint32, uint64, float32, float64
 
 __all__ = [
     'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'gauss_blur', 'flip_up_down', 'bw', 'label', 'relabel', 'float_image', 'imread', 'imsave', 'imread_mat',
+    'gauss_blur', 'flip_up_down', 'bw', 'label', 'relabel', 'consecutively_number', 'float_image', 'imread', 'imsave', 'imread_mat',
     ]
 
 # The image types we know about
@@ -31,6 +31,9 @@ IM_RGB24     = dtype((uint8,3))
 IM_RGB24_STRUCT = dtype([('R',uint8),('G',uint8),('B',uint8)])
 IM_FLOAT     = dtype(float32)
 IM_DOUBLE    = dtype(float64)
+
+_unsigned_types = (IM_BYTE, IM_USHORT, IM_UINT, IM_ULONG)
+_ut_max_values = tuple(iinfo(dt).max for dt in _unsigned_types)
 
 def is_rgb24(im): return im.ndim == 2 and im.dtype == IM_RGB24_STRUCT or im.ndim == 3 and im.shape[2] == 3 and im.dtype == IM_BYTE
 def is_image_besides_rgb24(im): return im.ndim == 2 and im.dtype in (
@@ -65,15 +68,39 @@ def label(im):
     """
     Performs a connected-components analysis on the provided image. 0s are considered background.
     Any other values are connected into consecutively numbered contigous regions (where contigous is having a neighbor above, below, left, or right).
+    Returns the labeled image and the max label value.
     """
     from scipy.ndimage import label
-    return label(im)[0] # [1] is number of regions, obtainable later with im.max()
+    return label(im)
 
 def relabel(im):
     """
-    Creates a consecutively numbered image from an image that is already a set of labels.
+    Relabels a labeled image. Basically, makes sure that all labels are consecutive and checks that every
+    label is one connected region. For labels that specified unconnected regions, one connected region is
+    given the label previously had and the other is given a new label that is greater than all other labels.
+    Returns the labeled image and the max label value.
+    """
+    from numpy import iinfo
+    from scipy.ndimage import label
+    im,N = consecutively_number(im)
+    mx = iinfo(im.dtype).max
+    for i in xrange(1, N+1):
+        l,n = label(im==i)
+        for j in xrange(2, n+1):
+            N = N+1
+            if N > mx:
+                # The new label is larger than the current data type can store
+                im,N = _conv_type(im, N)
+                mx = iinfo(im.dtype).max
+            im[l==j] = N
+    return im, N
+
+def consecutively_number(im):
+    """
+    Creates a consecutively numbered image from an image.
     0 (or 0,0,0 for RGB) is the only value allowed to become 0 in the resulting image.
     Order is maintained. Note: Currently signed types where negative values are actually used are not supported.
+    Returns the re-numbered image and the max number assigned.
     """
     # TODO: support using the same numbers across multiple slices
     from numpy import unique, insert, searchsorted
@@ -94,14 +121,15 @@ def relabel(im):
         else:
             # only positive, easier
             if values[0] != 0: values = insert(values, 0, 0) # make sure only 0 becomes 0
-            if im.dtype != IM_FLOAT and im.dtype != IM_DOUBLE and values[-1] == len(values) - 1: return im.astype(IM_UINT) # have consecutive numbers starting at 0 already, straight numeric conversion
+            if im.dtype != IM_FLOAT and im.dtype != IM_DOUBLE and values[-1] == len(values) - 1: return _conv_type(im, len(values)-1) # have consecutive numbers starting at 0 already, straight numeric conversion
     else: raise ValueError('im')
-    n = len(values)
-    if n < 256: dtype = IM_BYTE
-    elif n < 65536: dtype = IM_USHORT
-    elif n < 4294967296: dtype = IM_UINT
+    return _conv_type(searchsorted(values, im), len(values)-1)
+
+def _conv_type(im, n):
+    for i, dtype in enumerate(_unsigned_types):
+        if n < _ut_max_values[i]:
+            return im.astype(dtype), n
     else: raise OverflowError()
-    return searchsorted(values, im).astype(dtype)
 
 def float_image(im, in_scale = None, out_scale = (0.0, 1.0)):
     """
