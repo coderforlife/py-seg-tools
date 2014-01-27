@@ -77,7 +77,7 @@ def imhist(im, nbins=256):
     else:
         from numpy import zeros
         h = zeros(nbins, dtype=int32)
-        for i in im: h += imhist(im, nbins)
+        for i in im: h += imhist(i, nbins)
         return h
 
 def histeq(im, nbins=None, hgram=None):
