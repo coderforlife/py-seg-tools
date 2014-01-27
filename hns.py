@@ -14,8 +14,6 @@ from tasks import *
 #  Verify final step
 #  Make water-level optional and automatically found
 #  Allow training mask to be supplied instead of training model
-#  Add extra arguments for imodmop conversion
-#  Do training subvolumes for speed (instead of assuming training is independent of full)
 
 import os
 from sys import stdout, stderr, argv, exit
@@ -27,7 +25,6 @@ if hasattr(stdout, 'fileno'):
 
 
 def imodmop_cmd(args, model, in_mrc, out_mrc, contract = 0):
-    # TODO: support subvolume arguments
     args = ['imodmop'] + list(args)
     if contract != 0:
         args.append('-pad')
@@ -107,18 +104,15 @@ def help_msg(err = 0, msg = None):
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
     print tw.fill("  %s [args] training.mrc training.mod full.mrc output.mod" % basename(argv[0]))
-    #print "    or "
-    #print tw.fill("  %s [args] full.mrc --training=x1,y1,z1,x2,y2,z2 training.mod output.mod" % basename(argv[0]))
-    print ""
-    print "Required arguments:"
-    print tw.fill("  -w  --water-lvl=  The watershed water level parameter, probably <=0.02")
     print ""
     print "Optional algorithm parameters:"
+    print tw.fill("  -w  --water-lvl=   The watershed water level parameter, probably <=0.02, if not provided will calculate an acceptable value and save it in the temp directory")
     print tw.fill("  -c  --contract=    The amount to contract contours by to make them inside the membranes")
     print tw.fill("  -s  --sigma=       The amount of Gaussian blur to use, default is 1.0 while 0.0 turns off blurring")
     print tw.fill("  -S  --chm-nstage=  The number of stages of processing to perform during CHM segmentation, default is 2")
     print tw.fill("  -L  --chm-nlevel=  The number of levels of processing to perform during each stage of CHM segmentation, default is 4")
-    print tw.fill("  -O  --chm-overlap= The overlap of the blocks used when CHM testing specified as a single number or two numbers (for X and Y), default is 100x100")
+    print tw.fill("  -O  --chm-overlap= The overlap of the blocks used when CHM testing specified as a single number or two numbers (for X and Y), default is 25x25")
+    print tw.fill("  --no-histeq        Do not perform histogram equalization on testing data using the histogram from the training data");
     print tw.fill("  --num-trees=       Number of random forest trees, should be at least 100, default is 255 - larger will be slower")
     print tw.fill("  --mtry=            Number of features to use in each node in RF, should be <<85, default is sqrt(total features)")
     print tw.fill("  --samp-size=       Fraction of samples used in each node in RF, default is 0.7")
@@ -180,7 +174,7 @@ if __name__ == "__main__":
     try:
         opts, args = getopt(argv[1:], "ht:j:u:C:w:c:s:S:L:O:",
                             ["help", "temp=", "jobs=", "rusage=", "cluster=",
-                             "water-lvl=", "contract=", "sigma=", "chm-nstage=", "chm-nlevel=", "chm-overlap=",
+                             "no-histeq", "water-lvl=", "contract=", "sigma=", "chm-nstage=", "chm-nlevel=", "chm-overlap=",
                              "num-trees=", "mtry=", "samp-size=", "pm-area-thresh0=", "pm-area-thresh1=", "pm-prop-thresh="
                              ])
     except getopt_error, msg: help_msg(2, msg)
@@ -190,6 +184,7 @@ if __name__ == "__main__":
     jobs = None
     rusage_log = None
     cluster = None
+    histeq = True
     wl = None
     contract = None
     sigma = None
@@ -222,10 +217,9 @@ if __name__ == "__main__":
             except ImportError: print >> stderr, "Warning: Cluster service requires the SAGA Python module. See saga-project.github.io. Cluster will not be used."
             try: cluster = Cluster(a)
             except Exception:   print >> stderr, "Warning: Cluster information could not be read. Cluster will not be used."
-##        elif o == "-z":
-##            if z != None: die("Must be only one z argument", 2)
-##            z = [int(s) for s in a.split(',') if s.isdigit()]
-##            if len(z) != 2 or z[1] < z[0]: help_msg(2, "The 'z' argument must be in the form of #,# where # are non-negative integers")
+        elif o == "no-histeq":
+            if not histeq: help_msg(2, "Must be only one 'no-histeq' argument")
+            histeq = False
         elif get_float  (o, a, ("-w","--water-lvl"  ), "water-lvl",       wl,             ref, (0.0, 1.0)): wl             = ref[0]
         elif get_float  (o, a, ("-c","--contract"   ), "contract",        contract,       ref            ): contract       = ref[0]
         elif get_float  (o, a, ("-s","--sigma"      ), "sigma",           sigma,          ref, (0.0, inf)): sigma          = ref[0]
@@ -260,7 +254,7 @@ if __name__ == "__main__":
     except BaseException as e: help_msg(2, "Failed to open full dataset MRC file: " + str(e))
         
     # Check the required arguments and set defaults for optional args
-    if wl          == None: help_msg(2, "water-lvl is a required argument")
+    #if wl          == None: # None means calculate best-guess
     #if jobs        != None: ... # dealt with later
     #if rusage_log  == None: # None means no log
     #if cluster     == None: # None means no custer used
@@ -268,7 +262,7 @@ if __name__ == "__main__":
     if sigma       == None: sigma = 1.0
     if chm_nstage  == None: chm_nstage = 2
     if chm_nlevel  == None: chm_nlevel = 4
-    if chm_overlap == None: chm_overlap = (100, 100)
+    if chm_overlap == None: chm_overlap = (25, 25)
     if treeNum     == None: treeNum = 255
     if mtry        == None: mtry = 0 # will make the program calculate the actual proper default
     if sampSize    == None: sampSize = 0.70
@@ -286,7 +280,6 @@ if __name__ == "__main__":
     mod_output = relpath(mod_output, temp)
     
     # Get properties from the MRCs then close them
-    # TODO: support subvolume for speed
     pxls_t  = mrc_t.section_size
     bytes_t = mrc_t.section_full_data_size
     pxls_f  = mrc_f.section_size
@@ -316,7 +309,8 @@ if __name__ == "__main__":
     # The end is the file type (TIFF, MHA, or MHA-blurred [simply blur])
     # Other names end with some sort of short descriptor of the contents (is = initial segmentation, tree = seg tree, sal = seg saliency, ...)
 
-    ## All of the file names that will be used, relative to temporary directory    
+    ## All of the file names that will be used, relative to temporary directory
+    if histeq: histogram = 'histogram.txt'
     t_d_tif_folder = 't_d_tif'
     f_d_tif_folder = 'f_d_tif'
     t_d_blur_folder = 't_d_blur'
@@ -338,16 +332,18 @@ if __name__ == "__main__":
                        [join(chm_working_folder, 'MODEL_level%d_stage%d.mat' % (l,s)) for s, l in product(xrange(1,chm_nstage), xrange(chm_nlevel+1))])
     
     t_p_mat_folder = join(chm_working_folder, 'output_level0_stage%d' % chm_nstage)
+    t_p_blur_folder = 't_p_blur'
     t_p_mat    = [join(t_p_mat_folder, '%04d.mat' % i) for i in zs_t] # training probabilty map (MAT)
-    t_p_mha    = [join('t_p_mha',  i) for i in mhas_t] # training probabilty map (MHA)
-    t_p_blur   = [join('t_p_blur', i) for i in mhas_t] # training probabilty map (MHA-blurred)
+    t_p_mha    = [join('t_p_mha',       i) for i in mhas_t] # training probabilty map (MHA)
+    t_p_blur   = [join(t_p_blur_folder, i) for i in mhas_t] # training probabilty map (MHA-blurred)
 
     f_p_tif_folder = 'f_p_tif'
     f_p_tif    = [join(f_p_tif_folder,  i) for i in tifs_f] # full probabilty map (TIFF)
     f_p_mha    = [join('f_p_mha',       i) for i in mhas_f] # full probabilty map (MHA)
     f_p_blur   = [join('f_p_blur',      i) for i in mhas_f] # full probabilty map (MHA-blurred)
 
-    textondict = 'textondict.ssv' # Texture data
+    textondict             = 'textondict.ssv' # Texture data
+    if wl == None: wl_file = 'waterlevel.txt' # Waterlevel value file
 
     t_is1      = [join('t_is1',  i) for i in mhas_t] # training initial segmentation (from watershed)
     t_is2      = [join('t_is2',  i) for i in mhas_t] # training initial segmentation (from pre-merging)
@@ -386,7 +382,7 @@ if __name__ == "__main__":
 
     ### Create the task ###
     memseg = Tasks('memseg.log',
-                   {'contract':contract,'sigma':sigma,
+                   {'contract':contract,'sigma':sigma,'histeq':histeq,
                     'chm-nstage':chm_nstage,'chm-nlevel':chm_nlevel,'chm-overlap':chm_overlap,
                     'waterlevel':wl,'pm-area-threshold-0':areaThreshold0,'pm-area-threshold-1':areaThreshold1,'pm-prob-threshold':probThreshold,
                     'number-of-trees':treeNum,'mtry':mtry,'sample-size':sampSize},
@@ -395,19 +391,31 @@ if __name__ == "__main__":
     jobs = memseg.max_tasks_at_once # if jobs was None, now it is cpu_count(), otherwise unchanged
     most_jobs = max(jobs*3//4, min(jobs, 2))
     least_jobs = max(jobs - most_jobs, 1)
+    blur = '-s'+str(sigma)
+    hgram = '-h'+histogram
 
     ### Convert input files ###
-    memseg.add(('mrc2stack', '-etif', mrc_f_filename, f_d_tif_folder), mrc_f_filename, f_d_tif).pressure(mem = 20*MB + 2*bytes_f)
+    # TODO: Decide what should be done with background
+    # Testing data only, or training too?
+    # f_d_tif have background removed or mirrored? (and if mirrored, removed or set to black after CHM testing?)
+    # f_d_blur have background removed or mirrored?
+    
     memseg.add(('mrc2stack', '-etif', mrc_t_filename, t_d_tif_folder), mrc_t_filename, t_d_tif).pressure(mem = 20*MB + 2*bytes_t)
+    memseg.add(('mrc2stack', '-emha', blur, '-F', mrc_t_filename, t_d_blur_folder), mrc_t_filename, t_d_blur, 'sigma').pressure(mem = 20*MB + bytes_t + 4*pxls_t)
 
-    memseg.add(('mrc2stack', '-emha', '-mfloat', '-s'+str(sigma), mrc_f_filename, f_d_blur_folder), mrc_f_filename, f_d_blur, 'sigma').pressure(mem = 20*MB + bytes_f + 4*pxls_f)
-    memseg.add(('mrc2stack', '-emha', '-mfloat', '-s'+str(sigma), mrc_t_filename, t_d_blur_folder), mrc_t_filename, t_d_blur, 'sigma').pressure(mem = 20*MB + bytes_t + 4*pxls_t)
+    if histeq:
+        memseg.add(['get_histogram'] + t_d_tif + [histogram], t_d_tif, histogram, 'histeq').pressure(mem = 20*MB + 2*bytes_t)
+        memseg.add(('mrc2stack', '-etif', hgram,             mrc_f_filename, f_d_tif_folder), (mrc_f_filename, histogram), f_d_tif, 'histeq').pressure(mem = 20*MB + 2*bytes_f)
+        memseg.add(('mrc2stack', '-emha', hgram, blur, '-F', mrc_f_filename, f_d_blur_folder), mrc_f_filename, f_d_blur, ('sigma','histeq')).pressure(mem = 20*MB + bytes_f + 4*pxls_f)
+    else:
+        memseg.add(('mrc2stack', '-etif',             mrc_f_filename, f_d_tif_folder), mrc_f_filename, f_d_tif, 'histeq').pressure(mem = 20*MB + 2*bytes_f)
+        memseg.add(('mrc2stack', '-emha', blur, '-F', mrc_f_filename, f_d_blur_folder), mrc_f_filename, f_d_blur, ('sigma','histeq')).pressure(mem = 20*MB + bytes_f + 4*pxls_f)
 
-    memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), t_s_bw , 'contract').pressure(mem = 20*MB + bytes_t + 1*pxls_t) # TODO: support extra args
-    memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), t_s_clr, 'contract').pressure(mem = 20*MB + bytes_t + 3*pxls_t) # TODO: support extra args
+    memseg.add(create_inv_bw_mask_cmd(mod_t_filename, mrc_t_filename, t_s_bw,  contract), (mod_t_filename, mrc_t_filename), t_s_bw , 'contract').pressure(mem = 20*MB + bytes_t + 1*pxls_t)
+    memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), t_s_clr, 'contract').pressure(mem = 20*MB + bytes_t + 3*pxls_t)
 
-    memseg.add(('mrc2stack', '-etif',              t_s_bw,  t_s_bw_tif_folder ), t_s_bw , t_s_bw_tif ).pressure(mem = 20*MB + 2*pxls_t)
-    memseg.add(('mrc2stack', '-emha', '-mrelabel', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
+    memseg.add(('mrc2stack', '-etif',       t_s_bw,  t_s_bw_tif_folder ), t_s_bw , t_s_bw_tif ).pressure(mem = 20*MB + 2*pxls_t)
+    memseg.add(('mrc2stack', '-emha', '-R', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
@@ -415,15 +423,15 @@ if __name__ == "__main__":
     memseg.add(('CHM_train', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), chm_working_folder, chm_nstage, chm_nlevel), t_d_tif+t_s_bw_tif, t_p_mat+chm_model_files, 'chm-nstage', 'chm-nlevel').pressure(mem=75*GB, cpu=least_jobs)
     [memseg.add(('CHM_test', fd, f_p_tif_folder, '-s', '-m', chm_working_folder, '-b', chm_block_size, '-o', chm_overlap), [fd] + chm_model_files, fp, 'chm-overlap', can_run_on_cluster=True).pressure(mem=10*GB) for fd, fp in zip(f_d_tif, f_p_tif)]
     
-    [memseg.add(('conv_img',            mat, mha), mat, mha).pressure(mem = 20*MB + 6*pxls_t) for mat, mha in izip(t_p_mat, t_p_mha)]
-    [memseg.add(('conv_img', '-mfloat', tif, mha), tif, mha).pressure(mem = 20*MB + 6*pxls_f) for tif, mha in izip(f_p_tif, f_p_mha)]
+    [memseg.add(('conv_img',       mat, mha), mat, mha).pressure(mem = 20*MB + 6*pxls_t) for mat, mha in izip(t_p_mat, t_p_mha)]
+    [memseg.add(('conv_img', '-F', tif, mha), tif, mha).pressure(mem = 20*MB + 6*pxls_f) for tif, mha in izip(f_p_tif, f_p_mha)]
     if sigma == 0.0:
         # TODO: does this actually work? I probably should just copy all at once instead of seperate processes
         [memseg.add(('cp', mha, blur), mha, blur, 'sigma').pressure(mem = 20*MB) for mha, blur in izip(t_p_mha, t_p_blur)]
         [memseg.add(('cp', mha, blur), mha, blur, 'sigma').pressure(mem = 20*MB) for mha, blur in izip(f_p_mha, f_p_blur)]
     else:
-        [memseg.add(('conv_img',            '-s'+str(sigma), mat, blur), mat, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_t) for mat, blur in izip(t_p_mat, t_p_blur)]
-        [memseg.add(('conv_img', '-mfloat', '-s'+str(sigma), tif, blur), tif, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_f) for tif, blur in izip(f_p_tif, f_p_blur)]
+        [memseg.add(('conv_img', blur,       mat, blur), mat, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_t) for mat, blur in izip(t_p_mat, t_p_blur)]
+        [memseg.add(('conv_img', blur, '-F', tif, blur), tif, blur, 'sigma').pressure(mem = 20*MB + 6*pxls_f) for tif, blur in izip(f_p_tif, f_p_blur)]
 
 
     ### Training Phase ###
@@ -434,7 +442,14 @@ if __name__ == "__main__":
     #   [3] writeToUInt16Image       -> 0 (means write uint32 label image which is what we want)
     #   [4] keepWatershedLine        -> 1 (must be 1)
     #   [5] isBoundaryFullyConnected -> 1 (must be 1)
-    [memseg.add(('hnsWatershed', pb, wl, iseg), pb, iseg, 'waterlevel') for pb, iseg in izip(t_p_blur, t_is1)]
+    if wl == None:
+        ## TODO: create hnsCalculateWatershedThreshold
+        ## TODO: modify hnsWatershed to accept file-name for waterlevel
+        memseg.add(('hnsCalculateWatershedThreshold', zs_t[0], zs_t[-1], join(t_p_blur_folder, '%04d.mha'), join(t_s_clr_mha_folder, '%04d.mha'), areaThreshold0, areaThreshold1, probThreshold),
+                   (t_p_blur, t_s_clr_mha), wl_file, ('waterlevel', 'pm-area-threshold-0', 'pm-area-threshold-1', 'pm-prob-threshold'), stdout=wl_file).pressure(cpu=4)
+        [memseg.add(('hnsWatershed', pb, wl_file, iseg), (pb, wl_file), iseg, 'waterlevel') for pb, iseg in izip(t_p_blur, t_is1)]
+    else:
+        [memseg.add(('hnsWatershed', pb, wl, iseg), pb, iseg, 'waterlevel') for pb, iseg in izip(t_p_blur, t_is1)]
     # 3 - Training initial segmentation (pre-merging)
     # Defaults used:
     #   [6] writeToUInt16Image       -> 0 (means write uint32 label image which is what we want)
@@ -456,7 +471,10 @@ if __name__ == "__main__":
 
     ### Segmentation Phase ###
     # 2 - Full dataset initial segmentation (see notes above)
-    [memseg.add(('hnsWatershed', pb, wl, iseg), pb, iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
+    if wl == None:
+        [memseg.add(('hnsWatershed', pb, wl_file, iseg), (pb, wl_file), iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
+    else:
+        [memseg.add(('hnsWatershed', pb, wl, iseg), pb, iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
     # 3 - Training initial segmentation (pre-merging) (see notes above)
     [memseg.add(('hnsMerge', iseg1, pb, areaThreshold0, areaThreshold1, probThreshold, iseg2), (iseg1, pb), iseg2, ('pm-area-threshold-0', 'pm-area-threshold-1', 'pm-prob-threshold')) for iseg1, pb, iseg2 in izip(f_is1, f_p_blur, f_is2)]
     # 4 - Full dataset merge generation
