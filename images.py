@@ -9,7 +9,7 @@ __all__ = [
     'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'gauss_blur', 'flip_up_down', 'bw', 'label', 'relabel', 'consecutively_number', 'float_image', 'imread', 'imsave', 'imread_mat',
+    'gauss_blur', 'flip_up_down', 'bw', 'imhist', 'histeq', 'label', 'relabel', 'consecutively_number', 'float_image', 'imread', 'imsave', 'imread_mat',
     ]
 
 # The image types we know about
@@ -34,6 +34,10 @@ IM_DOUBLE    = dtype(float64)
 
 _unsigned_types = (IM_BYTE, IM_USHORT, IM_UINT, IM_ULONG)
 _ut_max_values = tuple(iinfo(dt).max for dt in _unsigned_types)
+_signed2unsigned = {IM_SBYTE:IM_BYTE,
+                    IM_SHORT:IM_USHORT,IM_SHORT_BE:IM_USHORT_BE,
+                    IM_INT  :IM_UINT,  IM_INT_BE  :IM_UINT_BE,
+                    IM_LONG :IM_ULONG, IM_LONG_BE :IM_ULONG_BE}
 
 def is_rgb24(im): return im.ndim == 2 and im.dtype == IM_RGB24_STRUCT or im.ndim == 3 and im.shape[2] == 3 and im.dtype == IM_BYTE
 def is_image_besides_rgb24(im): return im.ndim == 2 and im.dtype in (
@@ -43,17 +47,10 @@ def is_image(im): return is_rgb24(im) or is_image_besides_rgb24(im)
 
 def gauss_blur(im, sigma = 1.0):
     """
-    Blur an image using a Gaussian blur. Requires SciPy.
+    Blur an image using a Gaussian blur.
     """
     from scipy.ndimage import gaussian_filter
     return gaussian_filter(im, sigma = sigma)
-
-def flip_up_down(im):
-    """
-    Flips an image from top-bottom. The returned value is a view, not a copy, so it will values changed in either will be reflected in the other.
-    """
-    from numpy import flipud
-    return flipud(im)
 
 def bw(im, threshold=1):
     """
@@ -64,14 +61,72 @@ def bw(im, threshold=1):
     """
     return ((im>=threshold) if threshold>0 else (im<-threshold)).view(IM_BYTE)
 
-def label(im):
+"""Flips an image from top-bottom. The returned value is a view, not a copy, so it will values changed in either will be reflected in the other."""
+from numpy import flipud as flip_up_down
+
+def imhist(im, nbins=256):
     """
-    Performs a connected-components analysis on the provided image. 0s are considered background.
-    Any other values are connected into consecutively numbered contigous regions (where contigous is having a neighbor above, below, left, or right).
-    Returns the labeled image and the max label value.
+    Calculate the histogram of an image. By default it uses 256 bins (nbins).
+    The 'im' argument can be an array, a path (string), or an iterable of these.
     """
+    if isinstance(im, basestring): im = imread(im)
+    if hasattr(im, 'dtype'):
+        from numpy import iinfo, histogram
+        ix = iinfo(im.dtype)
+        return histogram(im,nbins,range=(ix.min,ix.max+1))[0]
+    else:
+        from numpy import zeros
+        h = zeros(nbins, dtype=int32)
+        for i in im: h += imhist(im, nbins)
+        return h
+
+def histeq(im, nbins=None, hgram=None):
+    """
+    Equalize the histogram of an image. This is either to a uniform histogram of
+    nbins elements (default 64) or to a custom histogram (hgram). Only supports
+    integral image data types.
+    """
+    from numpy import tile, iinfo, histogram, vstack, spacing, sqrt, empty
+    if im.dtype not in (IM_BYTE, IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_USHORT, IM_USHORT_BE, IM_INT, IM_INT_BE, IM_UINT, IM_UINT_BE, IM_LONG, IM_LONG_BE, IM_ULONG, IM_ULONG_BE):
+        raise ValueError('Unsupported image type')
+    if hgram == None:
+        if nbins == None: nbins = 64
+        h_dst = tile(float(im.size)/nbins, nbins)
+    elif nbins != None: raise ValueError('Cannot use both nbins and hgram in histeq')
+    elif hgram.ndim != 1: raise ValueError('hgram must be a vector')
+    else:
+        nbins = len(hgram)
+        h_dst = hgram*(float(im.size)/sum(hgram)) # Make sure the sum of the bins equals the number pixels
+    orig_dtype = im.dtype
+    if im.dtype in _signed2unsigned:
+        im = im.view(dtype=_signed2unsigned[im.dtype])
+
+    ix = iinfo(im.dtype)
+    mn, mx = ix.min, ix.max
+
+    h_src = histogram(im,256,range=(mn,mx+1))[0]
+    h_src_cdf = h_src.cumsum()
+    h_dst_cdf = h_dst.cumsum()
+
+    xx = vstack((h_src, h_src))
+    xx[0,255],xx[1,  0] = 0,0
+    tol = tile(xx.min(0)/2.0,(nbins,1))
+    err = tile(h_dst_cdf,(256,1)).T - tile(h_src_cdf,(nbins,1)) + tol
+    err[err < -im.size*sqrt(spacing(1))] = im.size
+    T = (err.argmin(0)*(mx/(nbins-1.0))).round(out=empty(256, dtype=im.dtype))
+    if mx == 255: idx = im # Perfect fit, we don't need to scale the indices
+    else: idx = (im*(255.0/mx)).round(out=empty(im.shape, dtype=int32)) # Scale the indices
+    return T[idx].view(dtype=orig_dtype)
+
+"""
+Performs a connected-components analysis on the provided image. 0s are considered background.
+Any other values are connected into consecutively numbered contigous regions (where contigous is having a neighbor above, below, left, or right).
+Returns the labeled image and the max label value.
+"""
+try:
     from scipy.ndimage import label
-    return label(im)
+except:
+    def label(im): raise ImportError()
 
 def relabel(im):
     """
