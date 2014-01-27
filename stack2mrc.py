@@ -4,11 +4,10 @@ from utils import check_reqs
 check_reqs()
 
 """
-Converts an image stack to an MRC file. Runs either as a command line program or
-as an importable function.
+Converts an image stack to an MRC file. Runs either as a command line program or as an importable function.
 """
 
-def stack2mrc(stack, mrc, flip = False, sigma = 0.0):
+def stack2mrc(stack, mrc, imfilter = lambda im: im):
     """
     Converts an image stack to an MRC file. Returns the new MRC file object.
 
@@ -17,30 +16,17 @@ def stack2mrc(stack, mrc, flip = False, sigma = 0.0):
     mrc      -- the MRC filename to save to
     
     Optional Arguments:
-    flip     -- if True then each image is flipped top to bottom before saving
-    sigma    -- the amount of blurring to perform on the slices while saving, as the sigma argument for a Gaussian blur, defaults to no blurring
+    imfilter  -- a function/callable that takes and returns an image
     """
-    from os.path import join
     from mrc import MRC
-    from images import imread, flip_up_down, gauss_blur
+    from images import imread
 
     stack = iter(stack)
-    flip = bool(flip)
-    sigma = float(sigma)
-
-    if flip:
-        read = (lambda f: gauss_blur(flip_up_down(imread(x)), sigma)) if sigma != 0.0 else (lambda f: flip_up_down(imread(x)))
-    elif sigma != 0.0:
-        read = lambda f: gauss_blur(imread(x), sigma)
-    else:
-        read = imread
-
-    try:
-        img = read(stack.next())
+    try: img = imfilter(imread(stack.next()))
     except StopIteration: raise ValueError("Must provide at least one image")
     mrc = MRC(mrc, nx=img.shape[1], ny=img.shape[0], dtype=img.dtype)
     mrc.append(img)
-    mrc.append_all((read(img) for img in stack)) # will skip the first one
+    mrc.append_all(imfilter(imread(img)) for img in stack) # will skip the first one
     mrc.write_header()
     return mrc
 
@@ -49,6 +35,7 @@ def help_msg(err = 0, msg = None):
     from sys import stderr, argv, exit
     from textwrap import fill, TextWrapper
     from utils import get_terminal_width
+    import imfilter_util
     w = max(get_terminal_width(), 20)
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
@@ -61,8 +48,7 @@ def help_msg(err = 0, msg = None):
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    print tw.fill("  -f  --flip      If given then each image is flipped top to bottom before saving")
-    print tw.fill("  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring")
+    for l in imfilter_util.usage: print tw.fill(l)
     exit(err)
         
 if __name__ == "__main__":
@@ -70,27 +56,20 @@ if __name__ == "__main__":
     from sys import argv
     from getopt import getopt, error as getopt_error
     from glob import iglob
+    import imfilter_util
     from mrc import MRC
     
     if len(argv) < 2: help_msg(1)
     
-    try: opts, args = getopt(argv[1:], "hfs:", ["help", "flip", "sigma="])
+    try: opts, args = getopt(argv[1:], "h"+imfilter_util.getopt_short, ["help"]+imfilter_util.getopt_long)
     except getopt_error, msg: help_msg(2, msg)
 
     # Parse arguments
     flip = False
     sigma = None
     for o,a in opts:
-        if o == "-h" or o == "--help":
-            help_msg()
-        elif o == "-f" or o == "--flip":
-            if flip: help_msg(2, "Must be only one flip argument")
-            flip = True
-        elif o == "-s" or o == "--sigma":
-            if sigma != None: help_msg(2, "Must be only one sigma argument")
-            try: sigma = float(a)
-            except: help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
-            if sigma < 0 or isnan(sigma): help_msg(2, "Sigma must be a floating-point number greater than or equal to 0.0")
+        if o == "-h" or o == "--help": help_msg()
+        else: imfilters += [imfilter_util.parse_opt(o,a,help_msg)]
 
     # Make sure paths are good
     if len(args) < 2: help_msg(2, "You need to provide at least one image path/glob and an MRC as arguments")
@@ -108,7 +87,7 @@ if __name__ == "__main__":
     if len(stack) == 0: help_msg(2, "No images were found using the given arguments")
 
     # Get default values for optional args
-    if sigma == None: sigma = 0.0
+    imf = imfilter_util.list2imfilter(imfilters)
 
     # Do the actual work!
-    stack2mrc(stack, mrc_filename, flip, sigma)
+    stack2mrc(stack, mrc_filename, imf)
