@@ -40,7 +40,7 @@ def help_msg(err = 0, msg = None):
     tw = TextWrapper(width = w, subsequent_indent = ' '*18)
     if msg != None: print >> stderr, fill(msg, w)
     print "Usage:"
-    print tw.fill("  %s [args] input1.png [input2.png ...] output.mrc" % basename(argv[0]))
+    print tw.fill("  %s [args] input1.xxx [input2.xxx ...] output.mrc" % basename(argv[0]))
     print ""
     print tw.fill("You may also use a glob-like syntax for any of the input files, such as 'folder/*.png' or '[0-9][0-9][0-9].png'")
     print ""
