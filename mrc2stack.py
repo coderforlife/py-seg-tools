@@ -59,7 +59,7 @@ def help_msg(err = 0, msg = None):
 if __name__ == "__main__":
     from os.path import realpath
     from sys import argv
-    from getopt import getopt, error as getopt_error
+    from getopt import getopt, GetoptError
     import imfilter_util
 
     from utils import make_dir
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
     
     try: opts, args = getopt(argv[1:], "he:b:x:y:z:"+imfilter_util.getopt_short, ["help", "ext=", "base="]+imfilter_util.getopt_long)
-    except getopt_error, msg: help_msg(2, msg)
+    except GetoptError as err: help_msg(2, str(err))
 
     # Parse arguments
     x = None

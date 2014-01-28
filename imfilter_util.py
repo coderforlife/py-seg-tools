@@ -1,4 +1,4 @@
-getopt_short = "fFlrm:s:t:h:"
+getopt_short = "fFlrm:s:t:H:"
 getopt_long = ["flip", "float", "label", "relabel", "sigma=", "thresh=", "histeq="]
 usage = (
     "  -f  --flip      If given then each image is flipped top to bottom before saving",
@@ -7,7 +7,7 @@ usage = (
     "  -r  --relabel   Output a renumbered label image (correcting for missing or split regions)",
     "  -s  --sigma=    Sigma for Gaussian blurring while saving, defaults to no blurring",
     "  -t  --thresh=   Convert image to black and white with the given threshold (values below are 0, values above and included are 1 - reversed with negative values)",
-    "  -h  --histeq=   Perform histogram equalization; if value is a number then equal-sized bins are used, otherwise it needs to be a file of integers (or - for stdin)",
+    "  -H  --histeq=   Perform histogram equalization; if value is a number then equal-sized bins are used, otherwise it needs to be a file of integers (or - for stdin)",
     )
 
 def parse_opt(o,a,help_msg):
@@ -35,7 +35,7 @@ def parse_opt(o,a,help_msg):
         threshold = int(a)
         from images import bw
         return lambda im: bw(im, threshold)
-    elif o == "-h" or o == "--histeq":
+    elif o == "-H" or o == "--histeq":
         from images import histeq
         if a.isdigit():
             nbins = int(a)
@@ -54,4 +54,7 @@ def list2imfilter(l):
     elif len(l) == 1:
         return l[0]
     else:
-        return lambda im: xxx
+        def l2imf(im):
+            for f in l: im = f(im)
+            return im
+        return l2imf

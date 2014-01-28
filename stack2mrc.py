@@ -54,7 +54,7 @@ def help_msg(err = 0, msg = None):
 if __name__ == "__main__":
     from os.path import isfile, realpath
     from sys import argv
-    from getopt import getopt, error as getopt_error
+    from getopt import getopt, GetoptError
     from glob import iglob
     import imfilter_util
     from mrc import MRC
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     if len(argv) < 2: help_msg(1)
     
     try: opts, args = getopt(argv[1:], "h"+imfilter_util.getopt_short, ["help"]+imfilter_util.getopt_long)
-    except getopt_error, msg: help_msg(2, msg)
+    except GetoptError as err: help_msg(2, str(err))
 
     # Parse arguments
     flip = False

@@ -29,14 +29,14 @@ def help_msg(err = 0, msg = None):
 if __name__ == "__main__":
     from os.path import realpath, exists
     from sys import argv
-    from getopt import getopt, error as getopt_error
+    from getopt import getopt, GetoptError
     import imfilter_util
     from images import imread, imsave
 
     if len(argv) < 2: help_msg(1)
 
     try: opts, args = getopt(argv[1:], "h"+imfilter_util.getopt_short, ["help"]+imfilter_util.getopt_long)
-    except getopt_error, msg: help_msg(2, msg)
+    except GetoptError as err: help_msg(2, str(err))
 
     # Parse arguments
     imfilters = []
@@ -54,4 +54,4 @@ if __name__ == "__main__":
     imf = imfilter_util.list2imfilter(imfilters)
 
     # Do the actual work!
-    imsave(output, imfilter(imread(input)))
+    imsave(output, imf(imread(input)))

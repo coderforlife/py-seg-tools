@@ -160,7 +160,7 @@ def get_int_pos(o, a, options, name, old_value, ref, max_val = -1):
 
 
 if __name__ == "__main__":
-    from getopt import getopt, error as getopt_error
+    from getopt import getopt, GetoptError
     from glob import glob
     from os.path import exists, isdir, join, realpath, relpath
     from os import getcwd
@@ -177,7 +177,7 @@ if __name__ == "__main__":
                              "no-histeq", "water-lvl=", "contract=", "sigma=", "chm-nstage=", "chm-nlevel=", "chm-overlap=",
                              "num-trees=", "mtry=", "samp-size=", "pm-area-thresh0=", "pm-area-thresh1=", "pm-prop-thresh="
                              ])
-    except getopt_error, msg: help_msg(2, msg)
+    except GetoptError as err: help_msg(2, str(err))
 
     # Check the arguments
     temp = None
@@ -392,7 +392,7 @@ if __name__ == "__main__":
     most_jobs = max(jobs*3//4, min(jobs, 2))
     least_jobs = max(jobs - most_jobs, 1)
     blur = '-s'+str(sigma)
-    hgram = '-h'+histogram
+    hgram = '-H'+histogram
 
     ### Convert input files ###
     # TODO: Decide what should be done with background
@@ -415,7 +415,7 @@ if __name__ == "__main__":
     memseg.add(create_color_mask_cmd (mod_t_filename, mrc_t_filename, t_s_clr, contract), (mod_t_filename, mrc_t_filename), t_s_clr, 'contract').pressure(mem = 20*MB + bytes_t + 3*pxls_t)
 
     memseg.add(('mrc2stack', '-etif',       t_s_bw,  t_s_bw_tif_folder ), t_s_bw , t_s_bw_tif ).pressure(mem = 20*MB + 2*pxls_t)
-    memseg.add(('mrc2stack', '-emha', '-R', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
+    memseg.add(('mrc2stack', '-emha', '-r', t_s_clr, t_s_clr_mha_folder), t_s_clr, t_s_clr_mha).pressure(mem = 20*MB + 7*pxls_t)
 
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###

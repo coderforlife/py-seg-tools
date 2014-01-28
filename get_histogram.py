@@ -32,15 +32,15 @@ def help_msg(err = 0, msg = None):
 if __name__ == "__main__":
     from os.path import isfile, realpath
     from sys import argv
-    from getopt import getopt, error as getopt_error
+    from getopt import getopt, GetoptError
     from glob import iglob
     from images import imhist
     from numpy import savetxt
 
     if len(argv) < 2: help_msg(1)
 
-    try: opts, args = getopt(argv[1:], "h", ["help"])
-    except getopt_error, msg: help_msg(2, msg)
+    try: opts, args = getopt(argv[1:], "hn:", ["help", "nbins="])
+    except GetoptError as err: help_msg(2, str(err))
 
     # Parse arguments
     nbins = None
