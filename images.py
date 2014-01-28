@@ -9,7 +9,9 @@ __all__ = [
     'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'gauss_blur', 'flip_up_down', 'bw', 'imhist', 'histeq', 'label', 'relabel', 'consecutively_number', 'float_image', 'imread', 'imsave', 'imread_mat',
+    'Rectangle','get_foreground_area','fill_background','crop','add_background',
+    'gauss_blur','flip_up_down','bw','imhist','histeq','label','relabel','consecutively_number','float_image',
+    'imread','imsave','imread_mat',
     ]
 
 # The image types we know about
@@ -44,6 +46,83 @@ def is_image_besides_rgb24(im): return im.ndim == 2 and im.dtype in (
     IM_BYTE, IM_USHORT, IM_USHORT_BE, IM_UINT, IM_UINT_BE, IM_ULONG, IM_ULONG_BE,
     IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_INT, IM_INT_BE, IM_LONG, IM_LONG_BE, IM_FLOAT, IM_DOUBLE)
 def is_image(im): return is_rgb24(im) or is_image_besides_rgb24(im)
+
+class Rectangle:
+    def __init__(self,t,l,b,r): self.__rect = (t,l,b,r)
+    def __repr__(self): return "[(%d,%d),(%d,%d)]" % self.__rect
+        
+    @property
+    def T(self): return self.__rect[0]
+    @property
+    def L(self): return self.__rect[1]
+    @property
+    def B(self): return self.__rect[2]
+    @property
+    def R(self): return self.__rect[3]
+    
+    @property
+    def Y(self): return self.__rect[0]
+    @property
+    def X(self): return self.__rect[1]
+    @property
+    def H(self): return self.__rect[2] - self.__rect[0]
+    @property
+    def W(self): return self.__rect[3] - self.__rect[1]
+
+def get_foreground_area(im, bg=None):
+    """Get the area of the foreground. If bg is not given, it is calculated from the edges of the image."""
+    shp = im.shape
+    t,l,b,r = 0, 0, shp[0]-1, shp[1]-1
+    if bg == None:
+      # Calculate bg color using solid strips on top, bottom, left, or right
+      if all(im[0,:] == im[0,0]) or all(im[:,0] == im[0,0]):
+        bg = im[0,0]
+      elif all(im[-1,:] == im[-1,-1]) or all(im[:,-1] == im[-1,-1]):
+        bg = im[-1,-1]
+      else: return Rectangle(t,l,b,r) # no discoverable bg color, return the entire image
+    while t < shp[0]-1 and all(im[t,:] == bg): t += 1
+    while b > t        and all(im[b,:] == bg): b -= 1
+    while l < shp[1]-1 and all(im[:,l] == bg): l += 1
+    while r > l        and all(im[:,r] == bg): r -= 1
+    return Rectangle(t,l,b,r)
+
+def fill_background(im, rect=None, bg=0, mirror=False):
+    """
+    Fills the 'background' of the image with 'bg' or if mirror it True then a reflection of the foreground.
+    The foreground is given by the rectangle. If the rectangle is not given, it is calculated with get_foreground_area.
+    Currently when using reflection, the foreground must be wider or taller than the background.
+    Operates on the array directly and does not copy it.
+    """
+    if rect == None: rect = get_foreground_area(im)
+    if mirror:
+        shp = im.shape
+        im[:rect.T,:]   = im[2*rect.T-1:rect.T-1:-1,:]
+        im[:,:rect.L]   = im[:,2*rect.L-1:rect.L-1:-1]
+        im[rect.B+1:,:] = im[rect.B:2*rect.B-shp[0]+1:-1,:]
+        im[:,rect.R+1:] = im[:,rect.R:2*rect.R-shp[1]+1:-1]
+    else:
+        im[:rect.T,:]   = bg
+        im[:,:rect.L]   = bg
+        im[rect.B+1:,:] = bg
+        im[:,rect.R+1:] = bg
+    return im
+
+def crop(im, rect=None):
+    """Crops an image, keeping the rectangle. If the rectangle is not given, it is calculated with get_foreground_area. Returns a view, not a copy."""
+    if rect == None: rect = get_foreground_area(im)
+    return im[rect.T:rect.B+1, rect.L:rect.R+1]
+
+def add_background(im,t,l,h,w):
+    """
+    Adds a background to the image where the given image is the foreground and the background will be 0s.
+    The new top-left corner of where the foreground will be placed along with the height-width of the new image size.
+    """
+    # TODO: could use "pad" function instead
+    from numpy import zeros
+    shp = im.shape
+    im_out = zeros((h,w),dtype=im.dtype)
+    im_out[t:t+shp[0],l:l+shp[1]] = im
+    return im_out
 
 def gauss_blur(im, sigma = 1.0):
     """
