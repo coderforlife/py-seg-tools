@@ -444,12 +444,9 @@ if __name__ == "__main__":
     #   [5] isBoundaryFullyConnected -> 1 (must be 1)
     if wl == None:
         ## TODO: create hnsCalculateWatershedThreshold
-        ## TODO: modify hnsWatershed to accept file-name for waterlevel
         memseg.add(('hnsCalculateWatershedThreshold', zs_t[0], zs_t[-1], join(t_p_blur_folder, '%04d.mha'), join(t_s_clr_mha_folder, '%04d.mha'), areaThreshold0, areaThreshold1, probThreshold),
                    (t_p_blur, t_s_clr_mha), wl_file, ('waterlevel', 'pm-area-threshold-0', 'pm-area-threshold-1', 'pm-prob-threshold'), stdout=wl_file).pressure(cpu=4)
-        [memseg.add(('hnsWatershed', pb, wl_file, iseg), (pb, wl_file), iseg, 'waterlevel') for pb, iseg in izip(t_p_blur, t_is1)]
-    else:
-        [memseg.add(('hnsWatershed', pb, wl, iseg), pb, iseg, 'waterlevel') for pb, iseg in izip(t_p_blur, t_is1)]
+    [memseg.add(('hnsWatershed', pb, wl if wl else wl_file, iseg), pb if wl else (pb, wl_file), iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
     # 3 - Training initial segmentation (pre-merging)
     # Defaults used:
     #   [6] writeToUInt16Image       -> 0 (means write uint32 label image which is what we want)
@@ -471,10 +468,7 @@ if __name__ == "__main__":
 
     ### Segmentation Phase ###
     # 2 - Full dataset initial segmentation (see notes above)
-    if wl == None:
-        [memseg.add(('hnsWatershed', pb, wl_file, iseg), (pb, wl_file), iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
-    else:
-        [memseg.add(('hnsWatershed', pb, wl, iseg), pb, iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
+    [memseg.add(('hnsWatershed', pb, wl if wl else wl_file, iseg), pb if wl else (pb, wl_file), iseg, 'waterlevel') for pb, iseg in izip(f_p_blur, f_is1)]
     # 3 - Training initial segmentation (pre-merging) (see notes above)
     [memseg.add(('hnsMerge', iseg1, pb, areaThreshold0, areaThreshold1, probThreshold, iseg2), (iseg1, pb), iseg2, ('pm-area-threshold-0', 'pm-area-threshold-1', 'pm-prob-threshold')) for iseg1, pb, iseg2 in izip(f_is1, f_p_blur, f_is2)]
     # 4 - Full dataset merge generation
