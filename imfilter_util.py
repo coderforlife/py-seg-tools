@@ -42,6 +42,7 @@ def parse_opt(o,a,help_msg):
             return lambda im: histeq(im, nbins=nbins)
         else:
             from sys import stdin
+            from numpy import loadtxt
             try: histogram = loadtxt(stdin if a == '-' else a, dtype=int)
             except: help_msg(2, "Unable to load histogram data from '%s'" % a)
             return lambda im: histeq(im, hgram=histogram)
