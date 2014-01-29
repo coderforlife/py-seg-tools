@@ -392,7 +392,7 @@ if __name__ == "__main__":
     most_jobs = max(jobs*3//4, min(jobs, 2))
     least_jobs = max(jobs - most_jobs, 1)
     blur = '-s'+str(sigma)
-    hgram = '-H'+histogram
+    if histeq: hgram = '-H'+histogram
 
     ### Convert input files ###
     # TODO: Decide what should be done with background
@@ -420,7 +420,7 @@ if __name__ == "__main__":
 
     ### Generate membrane segmentation from Mojtaba's code and convert resulting files ###
     #memseg.add(('CHMSEG', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), join(f_d_tif_folder, f_chm_files), f_p_tif_folder, chm_working_folder), t_d_tif+t_s_bw_tif+f_d_tif, f_p_tif+t_p_mat)
-    memseg.add(('CHM_train', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), chm_working_folder, chm_nstage, chm_nlevel), t_d_tif+t_s_bw_tif, t_p_mat+chm_model_files, 'chm-nstage', 'chm-nlevel').pressure(mem=75*GB, cpu=least_jobs)
+    memseg.add(('CHM_train', join(t_d_tif_folder, t_chm_files), join(t_s_bw_tif_folder, t_chm_files), '-m', chm_working_folder, '-S', chm_nstage, '-L', chm_nlevel), t_d_tif+t_s_bw_tif, t_p_mat+chm_model_files, 'chm-nstage', 'chm-nlevel').pressure(mem=75*GB, cpu=least_jobs)
     [memseg.add(('CHM_test', fd, f_p_tif_folder, '-s', '-m', chm_working_folder, '-b', chm_block_size, '-o', chm_overlap), [fd] + chm_model_files, fp, 'chm-overlap', can_run_on_cluster=True).pressure(mem=10*GB) for fd, fp in zip(f_d_tif, f_p_tif)]
     
     [memseg.add(('conv_img',       mat, mha), mat, mha).pressure(mem = 20*MB + 6*pxls_t) for mat, mha in izip(t_p_mat, t_p_mha)]
