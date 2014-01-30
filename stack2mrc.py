@@ -42,13 +42,13 @@ def help_msg(err = 0, msg = None):
     print "Usage:"
     print tw.fill("  %s [args] input1.xxx [input2.xxx ...] output.mrc" % basename(argv[0]))
     print ""
-    print tw.fill("You may also use a glob-like syntax for any of the input files, such as 'folder/*.png' or '[0-9][0-9][0-9].png'")
+    print "You may also use a glob-like syntax for any of the input files, such as 'folder/*.png' or '[0-9][0-9][0-9].png'"
     print ""
-    print tw.fill("Supports numerous file formats. MHA/MHD files must have the proper file extension. Other files will have their data examined to determine type. All images must have the same dimensions and pixel format. Not all pixel formats all supported.")
+    print "Supports numerous file formats. MHA/MHD files must have the proper file extension. Other files will have their data examined to determine type. All images must have the same dimensions and pixel format. Not all pixel formats all supported."
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    for l in imfilter_util.usage: print tw.fill(l)
+    for l in imfilter_util.usage: print tw.fill(l) if len(l) > 20 and l[0] == ' ' else l
     exit(err)
         
 if __name__ == "__main__":

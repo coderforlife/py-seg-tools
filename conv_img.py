@@ -19,13 +19,13 @@ def help_msg(err = 0, msg = None):
     print "Usage:"
     print tw.fill("  %s [args] input.xxx output.xxx" % basename(argv[0]))
     print ""
-    print tw.fill("Supports numerous file formats based on extension. The extension should be accurate to the filetype otherwise it may not work.")
+    print "Supports numerous file formats based on extension. The extension should be accurate to the filetype otherwise it may not work."
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
-    for l in imfilter_util.usage: print tw.fill(l)
+    for l in imfilter_util.usage: print tw.fill(l) if len(l) > 20 and l[0] == ' ' else l
     exit(err)
-        
+  
 if __name__ == "__main__":
     from os.path import realpath, exists
     from sys import argv

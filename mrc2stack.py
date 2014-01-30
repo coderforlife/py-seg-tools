@@ -44,7 +44,7 @@ def help_msg(err = 0, msg = None):
     print "Usage:"
     print tw.fill("  %s [args] input.mrc output_directory" % basename(argv[0]))
     print ""
-    print tw.fill("Supports numerous file formats based on extension. Not all types can be saved to with all options.")
+    print "Supports numerous file formats based on extension. Not all types can be saved to with all options."
     print ""
     print "Optional arguments:"
     print tw.fill("  -h  --help      Display this help")
@@ -53,7 +53,7 @@ def help_msg(err = 0, msg = None):
     print tw.fill("  -x #-#          The x coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -y #-#          The y coordinate to extract given as two integers seperated by a dash")
     print tw.fill("  -z indices      The slice indices to use, accepts integers with commas and dashes between them")
-    for l in imfilter_util.usage: print tw.fill(l)
+    for l in imfilter_util.usage: print tw.fill(l) if len(l) > 20 and l[0] == ' ' else l
     exit(err)
         
 if __name__ == "__main__":

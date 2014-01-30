@@ -3,18 +3,19 @@ Image utility functions for memseg and related conversion scritps.
 Utilizes numpy extensively. All images are numpy arrays in memory.
 """
 
-from numpy import dtype, iinfo, int8, uint8, int16, int32, int64, uint16, uint32, uint64, float32, float64
+from numpy import dtype, iinfo, bool_, int8, uint8, int16, int32, int64, uint16, uint32, uint64, float32, float64
 
 __all__ = [
-    'IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
+    'IM_BIT','IM_BYTE','IM_SBYTE','IM_SHORT','IM_SHORT_BE','IM_USHORT','IM_USHORT_BE','IM_INT','IM_INT_BE','IM_UINT','IM_UINT_BE','IM_LONG','IM_LONG_BE','IM_ULONG','IM_ULONG_BE',
     'IM_RGB24','IM_RGB24_STRUCT','IM_FLOAT','IM_DOUBLE',
     'is_rgb24', 'is_image_besides_rgb24', 'is_image',
-    'Rectangle','get_foreground_area','fill_background','crop','add_background',
+    'Rectangle','get_foreground_area','fill_background','crop','pad',
     'gauss_blur','flip_up_down','bw','imhist','histeq','label','relabel','consecutively_number','float_image',
     'imread','imsave','imread_mat',
     ]
 
 # The image types we know about
+IM_BIT       = dtype(bool_)
 IM_BYTE      = dtype(uint8)
 IM_SBYTE     = dtype(int8)
 IM_SHORT     = dtype(int16).newbyteorder('<')
@@ -34,23 +35,38 @@ IM_RGB24_STRUCT = dtype([('R',uint8),('G',uint8),('B',uint8)])
 IM_FLOAT     = dtype(float32)
 IM_DOUBLE    = dtype(float64)
 
-_unsigned_types = (IM_BYTE, IM_USHORT, IM_UINT, IM_ULONG)
-_ut_max_values = tuple(iinfo(dt).max for dt in _unsigned_types)
 _signed2unsigned = {IM_SBYTE:IM_BYTE,
                     IM_SHORT:IM_USHORT,IM_SHORT_BE:IM_USHORT_BE,
                     IM_INT  :IM_UINT,  IM_INT_BE  :IM_UINT_BE,
                     IM_LONG :IM_ULONG, IM_LONG_BE :IM_ULONG_BE}
+_unsigned_types = (IM_BIT, IM_BYTE, IM_USHORT, IM_UINT, IM_ULONG)
 
-def is_rgb24(im): return im.ndim == 2 and im.dtype == IM_RGB24_STRUCT or im.ndim == 3 and im.shape[2] == 3 and im.dtype == IM_BYTE
-def is_image_besides_rgb24(im): return im.ndim == 2 and im.dtype in (
+_integer_types = (IM_BIT, 
     IM_BYTE, IM_USHORT, IM_USHORT_BE, IM_UINT, IM_UINT_BE, IM_ULONG, IM_ULONG_BE,
-    IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_INT, IM_INT_BE, IM_LONG, IM_LONG_BE, IM_FLOAT, IM_DOUBLE)
+    IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_INT, IM_INT_BE, IM_LONG, IM_LONG_BE)
+_min_max_values = { dt:(iinfo(dt).min,iinfo(dt).max) for dt in _integer_types if dt != IM_BIT }
+_min_max_values[IM_BIT] = (False, True)
+_min_max_values[IM_FLOAT]  = (float32(0.0),float32(1.0))
+_min_max_values[IM_DOUBLE] = (float64(0.0),float64(1.0))
+
+def _get_min_max(im):
+    if isinstance(im, dtype): return _min_max_values[im]
+    if im.dtype in (IM_FLOAT, IM_DOUBLE):
+        mn, mx = im.min(), im.max()
+        return (mn, mx) if mn < 0.0 or mx > 1.0 else _min_max_values[im.dtype]
+    else:
+        return _min_max_values[im.dtype]
+def is_rgb24(im): return im.ndim == 2 and im.dtype == IM_RGB24_STRUCT or im.ndim == 3 and im.shape[2] == 3 and im.dtype == IM_BYTE
+def is_image_besides_rgb24(im): return im.ndim == 2 and (im.dtype in _integer_types or im.dtype in (IM_FLOAT, IM_DOUBLE))
 def is_image(im): return is_rgb24(im) or is_image_besides_rgb24(im)
 
 class Rectangle:
     def __init__(self,t,l,b,r): self.__rect = (t,l,b,r)
-    def __repr__(self): return "[(%d,%d),(%d,%d)]" % self.__rect
-        
+    def __repr__(self): return "%d,%d,%d,%d" % self.__rect
+
+    @property
+    def rect(self): return self.__rect
+    
     @property
     def T(self): return self.__rect[0]
     @property
@@ -74,12 +90,12 @@ def get_foreground_area(im, bg=None):
     shp = im.shape
     t,l,b,r = 0, 0, shp[0]-1, shp[1]-1
     if bg == None:
-      # Calculate bg color using solid strips on top, bottom, left, or right
-      if all(im[0,:] == im[0,0]) or all(im[:,0] == im[0,0]):
-        bg = im[0,0]
-      elif all(im[-1,:] == im[-1,-1]) or all(im[:,-1] == im[-1,-1]):
-        bg = im[-1,-1]
-      else: return Rectangle(t,l,b,r) # no discoverable bg color, return the entire image
+        # Calculate bg color using solid strips on top, bottom, left, or right
+        if all(im[0,:] == im[0,0]) or all(im[:,0] == im[0,0]):
+            bg = im[0,0]
+        elif all(im[-1,:] == im[-1,-1]) or all(im[:,-1] == im[-1,-1]):
+            bg = im[-1,-1]
+        else: return Rectangle(t,l,b,r) # no discoverable bg color, return the entire image
     while t < shp[0]-1 and all(im[t,:] == bg): t += 1
     while b > t        and all(im[b,:] == bg): b -= 1
     while l < shp[1]-1 and all(im[:,l] == bg): l += 1
@@ -112,22 +128,17 @@ def crop(im, rect=None):
     if rect == None: rect = get_foreground_area(im)
     return im[rect.T:rect.B+1, rect.L:rect.R+1]
 
-def add_background(im,t,l,h,w):
-    """
-    Adds a background to the image where the given image is the foreground and the background will be 0s.
-    The new top-left corner of where the foreground will be placed along with the height-width of the new image size.
-    """
+def pad(im,t,l,b,r):
+    """Pad an image with 0s. The amount of padding is given by top, left, bottom, and right."""
     # TODO: could use "pad" function instead
     from numpy import zeros
     shp = im.shape
-    im_out = zeros((h,w),dtype=im.dtype)
+    im_out = zeros((shp[0]+b+t,shp[0]+r+l),dtype=im.dtype)
     im_out[t:t+shp[0],l:l+shp[1]] = im
     return im_out
 
 def gauss_blur(im, sigma = 1.0):
-    """
-    Blur an image using a Gaussian blur.
-    """
+    """Blur an image using a Gaussian blur."""
     from scipy.ndimage import gaussian_filter
     return gaussian_filter(im, sigma = sigma)
 
@@ -138,7 +149,7 @@ def bw(im, threshold=1):
     If negative, every value at or below the magnitude of the threshold will be white.
     If 0, the result will just be black.
     """
-    return ((im>=threshold) if threshold>0 else (im<-threshold)).view(IM_BYTE)
+    return (im>=threshold) if threshold>0 else (im<-threshold)
 
 """Flips an image from top-bottom. The returned value is a view, not a copy, so it will values changed in either will be reflected in the other."""
 from numpy import flipud as flip_up_down
@@ -150,9 +161,10 @@ def imhist(im, nbins=256):
     """
     if isinstance(im, basestring): im = imread(im)
     if hasattr(im, 'dtype'):
-        from numpy import iinfo, histogram
-        ix = iinfo(im.dtype)
-        return histogram(im,nbins,range=(ix.min,ix.max+1))[0]
+        if not is_image_besides_rgb24(im): raise ValueError('Unsupported image type')
+        from numpy import histogram
+        mn,mx = _get_min_max(im)
+        return histogram(im, nbins, range=(mn,mx+1))[0]
     else:
         from numpy import zeros
         h = zeros(nbins, dtype=int32)
@@ -165,9 +177,8 @@ def histeq(im, nbins=None, hgram=None):
     nbins elements (default 64) or to a custom histogram (hgram). Only supports
     integral image data types.
     """
-    from numpy import tile, iinfo, histogram, vstack, spacing, sqrt, empty
-    if im.dtype not in (IM_BYTE, IM_SBYTE, IM_SHORT, IM_SHORT_BE, IM_USHORT, IM_USHORT_BE, IM_INT, IM_INT_BE, IM_UINT, IM_UINT_BE, IM_LONG, IM_LONG_BE, IM_ULONG, IM_ULONG_BE):
-        raise ValueError('Unsupported image type')
+    from numpy import tile, histogram, vstack, spacing, sqrt, empty
+    if not is_image_besides_rgb24(im): raise ValueError('Unsupported image type')
     if hgram == None:
         if nbins == None: nbins = 64
         h_dst = tile(float(im.size)/nbins, nbins)
@@ -180,15 +191,13 @@ def histeq(im, nbins=None, hgram=None):
     if im.dtype in _signed2unsigned:
         im = im.view(dtype=_signed2unsigned[im.dtype])
 
-    ix = iinfo(im.dtype)
-    mn, mx = ix.min, ix.max
-
+    mn,mx = _get_min_max(im)
     h_src = histogram(im,256,range=(mn,mx+1))[0]
     h_src_cdf = h_src.cumsum()
     h_dst_cdf = h_dst.cumsum()
 
     xx = vstack((h_src, h_src))
-    xx[0,255],xx[1,  0] = 0,0
+    xx[0,255],xx[1,0] = 0,0
     tol = tile(xx.min(0)/2.0,(nbins,1))
     err = tile(h_dst_cdf,(256,1)).T - tile(h_src_cdf,(nbins,1)) + tol
     err[err < -im.size*sqrt(spacing(1))] = im.size
@@ -214,18 +223,17 @@ def relabel(im):
     given the label previously had and the other is given a new label that is greater than all other labels.
     Returns the labeled image and the max label value.
     """
-    from numpy import iinfo
     from scipy.ndimage import label
     im,N = consecutively_number(im)
-    mx = iinfo(im.dtype).max
+    _,mx = _get_min_max(im)
     for i in xrange(1, N+1):
         l,n = label(im==i)
+        if N+n-1 > mx:
+            # The new set of labels is larger than the current data type can store
+            im,_ = _conv_type(im, N+n-1)
+            _,mx = _get_min_max(im)
         for j in xrange(2, n+1):
             N = N+1
-            if N > mx:
-                # The new label is larger than the current data type can store
-                im,N = _conv_type(im, N)
-                mx = iinfo(im.dtype).max
             im[l==j] = N
     return im, N
 
@@ -260,10 +268,10 @@ def consecutively_number(im):
     return _conv_type(searchsorted(values, im), len(values)-1)
 
 def _conv_type(im, n):
-    for i, dtype in enumerate(_unsigned_types):
-        if n < _ut_max_values[i]:
+    for dtype in _unsigned_types:
+        if n <= _get_min_max(dtype)[1]:
             return im.astype(dtype), n
-    else: raise OverflowError()
+    raise OverflowError()
 
 def float_image(im, in_scale = None, out_scale = (0.0, 1.0)):
     """
@@ -277,17 +285,7 @@ def float_image(im, in_scale = None, out_scale = (0.0, 1.0)):
     
     # Process arguments
     if im.dtype == IM_RGB24_STRUCT: raise ValueError('im') # cannot float RGB image
-    if in_scale == None:
-        if   im.dtype == IM_BYTE:  in_scale = (0, 255)
-        elif im.dtype == IM_SBYTE: in_scale = (-128, 127)
-        elif im.dtype == IM_SHORT  or im.dtype == IM_SHORT_BE:  in_scale = (-32768, 32767)
-        elif im.dtype == IM_USHORT or im.dtype == IM_USHORT_BE: in_scale = (0, 65535)
-        elif im.dtype == IM_INT    or im.dtype == IM_INT_BE:    in_scale = (-2147483647, 2147483647)
-        elif im.dtype == IM_UINT   or im.dtype == IM_UINT_BE:   in_scale = (0, 4294967295)
-        elif im.dtype == IM_LONG   or im.dtype == IM_LONG_BE:   in_scale = (-9223372036854775807, 9223372036854775807)
-        elif im.dtype == IM_ULONG  or im.dtype == IM_ULONG_BE:  in_scale = (0, 18446744073709551615)
-        elif im.dtype == IM_FLOAT  or im.dtype == IM_DOUBLE:    in_scale = (im.min(), im.max())
-        else: raise ValueError('im')
+    if in_scale == None: in_scale = _get_min_max(im)
     elif len(in_scale) != 2 or in_scale[0] >= in_scale[1]: raise ValueError('in_scale')
     if len(out_scale) != 2 or out_scale[0] >= out_scale[1]: raise ValueError('out_scale')
 
@@ -358,15 +356,26 @@ def imread(filename):
     MHA/MHD code is implemented in the metafile module. MAT code is implemented in this module.
     """
     from os.path import splitext
-    from scipy.misc import imread
-    from metafile import imread_mha, imread_mhd
 
     ext = splitext(filename)[1].lower()
     if ext == '.mat':   return imread_mat(filename)
-    elif ext == '.mha': return imread_mha(filename)[1]
-    elif ext == '.mhd': return imread_mhd(filename)[1]
-    else:               return imread(filename)
-    
+    elif ext == '.mha':
+        from metafile import imread_mha
+        return imread_mha(filename)[1]
+    elif ext == '.mhd':
+        from metafile import imread_mhd
+        return imread_mhd(filename)[1]
+    else:
+        from scipy.misc import imread
+        im = imread(filename)
+        if im.dtype == IM_BIT:
+            # Bugs in SciPy cause 1-bit images to be read as corrupted
+            from PIL import Image
+            from numpy import asarray
+            im = Image.open(filename)
+            im = asarray(im.getdata(), dtype=IM_BIT).reshape(im.size)
+        return im
+
 def imsave(filename, im):
     """
     Save an image. It will use SciPy (actually PIL) for any formats it supports.
@@ -385,10 +394,19 @@ def imsave(filename, im):
     MHA/MHD code is implemented in the metafile module.
     """
     from os.path import splitext
-    from scipy.misc import imsave
-    from metafile import imsave_mha, imsave_mhd
     
     ext = splitext(filename)[1].lower()
-    if ext == '.mha':   imsave_mha(filename, im)
-    elif ext == '.mhd': imsave_mhd(filename, im)
-    else:               imsave(filename, im)
+    if ext == '.mha':
+        from metafile import imsave_mha
+        imsave_mha(filename, im)
+    elif ext == '.mhd':
+        from metafile import imsave_mhd
+        imsave_mhd(filename, im)
+    elif im.dtype == IM_BIT:
+        # Make sure data is actually saved as 1-bit data
+        from PIL import Image
+        im = im * uint8(255)
+        Image.frombuffer('L', im.shape, im.data, 'raw', 'L', 0, 1).convert('1').save(filename)
+    else:
+        from scipy.misc import imsave
+        imsave(filename, im)
